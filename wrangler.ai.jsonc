@@ -1,0 +1,8 @@
+// The AI relay the Insights tab talks to. Holds the Anthropic key; the app never sees it.
+// Secrets (Settings → Runtime → Variables and Secrets): APP_KEY, ANTHROPIC_API_KEY.
+{
+  "name": "protocol-ai",
+  "main": "worker-ai/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true
+}

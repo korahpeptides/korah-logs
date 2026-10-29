@@ -1,0 +1,8 @@
+// Personal tracker: my.korahpeptides.com (sync on). Deployed by Cloudflare on every push to main.
+{
+  "name": "rickspeptidetracker",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dist/personal" },
+  "workers_dev": true,
+  "routes": [{ "pattern": "my.korahpeptides.com", "custom_domain": true }]
+}

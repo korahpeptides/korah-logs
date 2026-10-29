@@ -1,0 +1,19 @@
+{
+  "name": "korah-logs",
+  "version": "1.0.0",
+  "description": "Korah Logs peptide tracker: personal and community builds plus the Insights AI Worker",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs && python3 tools/test.py && node tools/test-worker.mjs",
+    "deploy:personal": "wrangler deploy --config wrangler.personal.jsonc",
+    "deploy:community": "wrangler deploy --config wrangler.community.jsonc",
+    "deploy:ai": "wrangler deploy --config wrangler.ai.jsonc"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2",
+    "prettier": "^3.9.10",
+    "wrangler": "^4.155.0"
+  },
+  "private": true,
+  "type": "module"
+}

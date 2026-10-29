@@ -1,0 +1,23 @@
+// Checks the AI Worker with a fake Anthropic API. Run: node tools/test-worker.mjs
+import worker from "../worker-ai/index.js";
+let sent = null;
+globalThis.fetch = async (url, opt) => { sent = { url, headers: opt.headers, body: JSON.parse(opt.body) }; return new Response('{"ok":1}', { status: 200 }); };
+const env = { APP_KEY: "abc", ANTHROPIC_API_KEY: "sk-test" };
+const req = (key, body, origin = "https://my.korahpeptides.com") =>
+  new Request("https://w", { method: "POST", headers: { "X-App-Key": key, Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+const ok = (n, c) => { console.log((c ? "PASS " : "FAIL ") + n); if (!c) process.exitCode = 1; };
+let r = await worker.fetch(req("nope", {}), env); ok("wrong key refused", r.status === 401);
+r = await worker.fetch(req("abc", { model: "claude-opus-5-5", max_tokens: 99999, temperature: 0, system: "s", messages: [], tools: [], tool_choice: {}, extra: 1 }), env);
+ok("forwards", r.status === 200 && sent.url.includes("api.anthropic.com"));
+ok("unknown model falls back to Haiku", sent.body.model === "claude-haiku-5-5");
+ok("max_tokens capped", sent.body.max_tokens === 8000);
+ok("temperature passed", sent.body.temperature === 0);
+ok("extra fields dropped", !("extra" in sent.body));
+ok("CORS for the app", r.headers.get("Access-Control-Allow-Origin") === "https://my.korahpeptides.com");
+r = await worker.fetch(req("abc", { model: "claude-sonnet-5-5", messages: [] }), env);
+ok("Sonnet allowed when asked", sent.body.model === "claude-sonnet-5-5");
+r = await worker.fetch(req("abc", {}, "https://evil.example"), env);
+ok("no CORS for other sites", !r.headers.get("Access-Control-Allow-Origin"));
+r = await worker.fetch(new Request("https://w", { method: "OPTIONS", headers: { Origin: "https://my.korahpeptides.com" } }), env);
+ok("preflight answered", r.status === 204);
+r = await worker.fetch(req("abc", {}), { APP_KEY: "abc" }); ok("missing secret explained", r.status === 500);

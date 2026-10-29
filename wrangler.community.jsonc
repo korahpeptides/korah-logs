@@ -1,0 +1,11 @@
+// Community tracker: app.korahpeptides.com. Deployed by Cloudflare on every push to main.
+{
+  "name": "peptide-tracker",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dist/community" },
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "app.korahpeptides.com", "custom_domain": true },
+    { "pattern": "public-peptide-tracker.korahpeptides.com", "custom_domain": true }
+  ]
+}
