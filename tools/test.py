@@ -39,8 +39,9 @@ SETUP = r"""
     {id:'lab-igf',name:'IGF-1',group:'Hormones',unit:'ug/L',range:'Z -2 to +2',lo:null,hi:250,order:1},
     {id:'lab-t',name:'Testosterone',group:'Hormones',unit:'nmol/L',range:'8.6-29',lo:8.6,hi:29,order:2},
     {id:'lab-a1c',name:'Hemoglobin A1c',group:'Sugar',unit:'%',range:'<6.0',lo:null,hi:6.0,thi:5.6,order:3},
-    {id:'lab-alt',name:'ALT',group:'Liver',unit:'U/L',range:'<50',lo:null,hi:50,order:4}];
-  d.labDraws = [{id:'dr1',date:ne(T,-13),statin:'none',results:{'lab-igf':'292','lab-t':'41','lab-a1c':'5.7','lab-alt':'22'}}];
+    {id:'lab-alt',name:'ALT',group:'Liver',unit:'U/L',range:'<50',lo:null,hi:50,order:4},
+    {id:'lab-glucose-fasting',name:'Glucose, Fasting',group:'Sugar',unit:'mmol/L – mg/dL',range:'3.6-6.0',lo:3.6,hi:6.0,order:5}];
+  d.labDraws = [{id:'dr1',date:ne(T,-13),statin:'none',results:{'lab-igf':'292','lab-t':'41','lab-a1c':'5.7','lab-alt':'22','lab-glucose-fasting':'4.6/83'}}];
   d.insights = []; d.insGuides = [];
   d.settings.ai = {url:'https://example.workers.dev',key:'k',context:'On prescribed TRT.'};
   window.__calls = [];
@@ -110,6 +111,7 @@ with sync_playwright() as pw:
                     guideShown: txt.includes('Guide for HGH / Somatropin early'),
                     fixedShown: txt.includes('All were evening doses.'),
                     missingShown: txt.includes('Claude did not explain this one'),
+                    glu: r1.flags.find(f=>f.title==='Home-meter fasting glucose') || null,
                     rating: r1.rating, labRating: L.rating, txt: txt.slice(0, 300)};
                 }""")
                 check("report twice: same flags and rating", res["same"])
@@ -122,6 +124,9 @@ with sync_playwright() as pw:
                 check("fixed wording shown (evening-dose pattern)", res["fixedShown"])
                 check("an unexplained flag is still listed", res["missingShown"])
                 check("protocol rating set by the app", res["rating"] == "fair", res["rating"])
+                g = res["glu"] or {}
+                check("home glucose labelled as home meter and set against the lab result",
+                      g.get("sev") == "low" and "lab fasting glucose was 4.6 mmol/L" in g.get("text", "") and "Diabetes" not in g.get("text", "") and g.get("note"), g)
                 check("lab rating set by the app", res["labRating"] == "needs_attention", res["labRating"])
             check(f"{tag}: no page errors", not errs, errs)
             pg.close()

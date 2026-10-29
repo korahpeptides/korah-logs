@@ -4108,7 +4108,7 @@ const Ia = [
   ["sbp", "Systolic BP", "mmHg"],
   ["dbp", "Diastolic BP", "mmHg"],
   ["hr", "Resting pulse", "bpm"],
-  ["glucose", "Fasting glucose", "mmol/L"],
+  ["glucose", "Fasting glucose (home meter)", "mmol/L"],
   ["waist", "Waist", "in"],
 ];
 function Ca() {

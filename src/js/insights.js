@@ -249,14 +249,9 @@ function insHomeFlags(end) {
   if (!ms.length) return out;
   // [field, name, unit, rise that counts, level that counts (average of last 3), who sets that level]
   [
-    [
-      "glucose",
-      "Fasting glucose",
-      "mmol/L",
-      0.4,
-      5.6,
-      "the level the American Diabetes Association counts as raised fasting glucose; Diabetes Canada uses 6.1",
-    ],
+    // Home glucose meters can read up to 15% off, and diabetes cut-offs apply to lab results only,
+    // so home glucose is only checked for a rise, and is set against the latest lab result (insLabGlucose).
+    ["glucose", "Home-meter fasting glucose", "mmol/L", 0.4, null, ""],
     ["weight", "Weight", "lb", 4, null, ""],
     ["sbp", "Blood pressure, top number", "mmHg", 8, 135, "the home-reading limit Hypertension Canada uses"],
     [
@@ -300,8 +295,24 @@ function insHomeFlags(end) {
     }
     if (rl[4] !== null && la >= rl[4])
       parts.push("recent average " + fe(la, 1) + " " + rl[2] + " is at or above " + rl[4] + ", " + rl[5]);
-    if (parts.length)
-      out.push({ sev: "medium", kind: "home", title: rl[1], text: rl[1] + ": " + parts.join("; ") + "." });
+    if (!parts.length) return;
+    var f = { sev: "medium", kind: "home", title: rl[1], text: rl[1] + ": " + parts.join("; ") + "." };
+    if (rl[0] === "glucose") {
+      var lab = insLabGlucose(end);
+      if (lab) {
+        f.text +=
+          " Your latest lab fasting glucose was " + lab.value + " on " + de(lab.date) + " (" + lab.status.toLowerCase() + ").";
+        f.note =
+          "Home meters can read up to 15% off, and the diabetes cut-offs only apply to lab results, so the lab value is the one to go by." +
+          (lab.ok
+            ? " Your lab value is normal. A rise on the same home meter can still be worth watching: if it keeps climbing, mention it at your next blood test."
+            : " Your lab value is also outside the lab range, so raise it with your clinician.");
+        if (lab.ok) f.sev = "low";
+        // An out-of-range lab glucose is already flagged by the lab rules, so this stays "Check".
+        else f.sev = "medium";
+      }
+    }
+    out.push(f);
   });
   var lastDate = ms[ms.length - 1].date;
   if (ae(lastDate, end) > 7)
@@ -313,6 +324,25 @@ function insHomeFlags(end) {
       note: "Log weight and fasting glucose at least once a week so these reports can spot changes early.",
     });
   return out;
+}
+/* Latest lab fasting glucose up to a date, if a lab test for it exists. */
+function insLabGlucose(end) {
+  var t = labTests().find(function (x) {
+    return /glucose/i.test(x.name) && /fast/i.test(x.name);
+  });
+  if (!t) return null;
+  var ser = labSeries(t.id).filter(function (x) {
+    return x.draw.date <= end;
+  });
+  if (!ser.length) return null;
+  var last = ser[ser.length - 1],
+    st = labStatus(t, last.raw);
+  return {
+    value: last.raw.split("/")[0] + " " + labUnit(t),
+    date: last.draw.date,
+    status: LAB_STATUS_TEXT[st] || "no range",
+    ok: st === "ok" || st === "",
+  };
 }
 /* Fixed wording for missed doses, with the pattern if there is one. */
 function insMissNote(missed) {
@@ -470,6 +500,7 @@ var INS_STYLE = [
   "Use only the data you are given. Never invent doses, dates, symptoms, readings, lab values or study figures. If you cite a study result, it must be one you are sure of.",
   'Read "about_me" before judging anything. A result that is expected for this person (for example very low LH and FSH, the pituitary signals to the testes, while on prescribed testosterone) is not a problem: say once that it is expected and why, then move on.',
   "Only suggest raising something with a clinician when there is a specific finding to raise, and then say exactly what to raise.",
+  "Home readings come from the person's own devices. A home glucose meter can read up to 15% off, and diabetes cut-offs for glucose apply to lab results only. When a lab result for the same measure exists, go by the lab result and do not blame a compound for a home-meter number the lab does not confirm.",
 ].join("\n");
 
 var INS_PROTO_SYS =

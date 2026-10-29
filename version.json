@@ -1,5 +1,5 @@
 {
-  "build": 68,
+  "build": 69,
   "date": "2026-10-29",
-  "note": "Insights: saved compound write-ups, fixed wording for routine flags, cheaper AI model; built from the project"
+  "note": "Insights: home-meter glucose no longer judged against lab cut-offs; checked against your lab result instead"
 }
