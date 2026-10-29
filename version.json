@@ -1,5 +1,5 @@
 {
-  "build": 69,
+  "build": 70,
   "date": "2026-10-29",
-  "note": "Insights: home-meter glucose no longer judged against lab cut-offs; checked against your lab result instead"
+  "note": "Protocols: AM + PM can start partway through, so earlier days don't show a missed PM dose"
 }

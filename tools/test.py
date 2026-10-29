@@ -128,6 +128,29 @@ with sync_playwright() as pw:
                 check("home glucose labelled as home meter and set against the lab result",
                       g.get("sev") == "low" and "lab fasting glucose was 4.6 mmol/L" in g.get("text", "") and "Diabetes" not in g.get("text", "") and g.get("note"), g)
                 check("lab rating set by the app", res["labRating"] == "needs_attention", res["labRating"])
+            if variant == "personal" and width == 1280:
+                sp = pg.evaluate("""() => {
+                  const T = te(), F = ne(T, -3);
+                  d.protocols = [{id:'ps',compoundId:'c1',dose:1,unit:'iu',route:'SubQ',sched:'daily',split:true,splitFrom:F,startDate:ne(T,-10),active:true,phases:[]}];
+                  d.logs = [];
+                  for (let i=1;i<=10;i++){ const dt=ne(T,-i);
+                    if (dt < F) d.logs.push({id:'o'+i,protocolId:'ps',compoundId:'c1',date:dt,status:'taken',doseMg:1});
+                    else { d.logs.push({id:'a'+i,protocolId:'ps',compoundId:'c1',date:dt,status:'taken',slot:'am',doseMg:1});
+                           d.logs.push({id:'p'+i,protocolId:'ps',compoundId:'c1',date:dt,status:'taken',slot:'pm',doseMg:1}); } }
+                  const S = insStats(ne(T,-10), ne(T,-1));
+                  const before = SL(d.protocols[0], ne(F,-1)), after = SL(d.protocols[0], F);
+                  r.tab='history'; r.histView='calendar'; r.calDay=ne(F,-1); r.calMonth=null; Ua();
+                  const dots = document.querySelector('[data-calday="'+ne(F,-1)+'"]').querySelectorAll('.cdot').length;
+                  Mn('ps'); const m = Ot('#modal');
+                  const shown = m.querySelector('#p-sf').style.display !== 'none' && m.querySelector('#p-splitfrom').value === F;
+                  m.querySelector('#p-splitfrom').value = ne(F,-1); m.querySelector('#p-save').click();
+                  const saved = d.protocols[0].splitFrom;
+                  return {missed: S.rows[0].missed, pct: S.pct, adh: dt(10).pct, before, after, dots, shown, saved, F1: ne(F,-1)};
+                }""")
+                check("AM + PM start date: no missed PM before it", sp["missed"] == [] and sp["pct"] == 100, sp)
+                check("AM + PM start date: one dose before, two from it", sp["before"] == [""] and sp["after"] == ["am", "pm"], sp)
+                check("AM + PM start date: calendar shows one dot before it", sp["dots"] == 1, sp)
+                check("AM + PM start date: shown and saved in the form", sp["shown"] and sp["saved"] == sp["F1"], sp)
             check(f"{tag}: no page errors", not errs, errs)
             pg.close()
     br.close()

@@ -116,7 +116,7 @@ function insStats(start, end) {
       missed = [];
     days.forEach(function (dy) {
       if (!Ye(p, dy)) return;
-      SL(p).forEach(function (sl) {
+      SL(p, dy).forEach(function (sl) {
         var g = st(p.id, dy, sl),
           ok = g && g.status === "taken";
         if (dy === today && !g) return; // still to come today
