@@ -2335,9 +2335,37 @@ function Mn(e) {
         t.escalate
           ? (t.phases.length || (t.phases = c(2)),
             (e.innerHTML =
-              '<div class="tmpls">\n        <button type="button" class="tmpl" data-esc="2"><b>2-phase ramp</b><span>Half, then full</span></button>\n        <button type="button" class="tmpl" data-esc="3"><b>3-phase ramp</b><span>Third, two thirds, full</span></button>\n        <button type="button" class="tmpl" data-esc="4"><b>4-phase ramp</b><span>Four even steps</span></button>\n        <button type="button" class="tmpl" data-esc="ld"><b>Daily, then 3× a week</b><span>5 weeks daily, then Mon · Wed · Fri</span></button>\n      </div>\n      <div class="phhead"><span></span><span>Dose</span><span></span><span>Duration</span><span></span></div>\n      <div id="p-phases"></div>\n      <div class="spread" style="padding:9px 0 0">\n        <button type="button" class="btn ghost sm" id="p-addph">+ Add phase</button>\n        <span class="tiny muted" id="p-phsum"></span></div>\n      <div class="note"><span>ⓘ</span><span id="p-escnote"></span></div>'),
+              '<div class="tmpls">\n        <button type="button" class="tmpl" data-esc="2"><b>2-phase ramp</b><span>Half, then full</span></button>\n        <button type="button" class="tmpl" data-esc="3"><b>3-phase ramp</b><span>Third, two thirds, full</span></button>\n        <button type="button" class="tmpl" data-esc="4"><b>4-phase ramp</b><span>Four even steps</span></button>\n        <button type="button" class="tmpl" data-esc="ld"><b>Daily, then 3× a week</b><span>5 weeks daily, then Mon · Wed · Fri</span></button>\n        <button type="button" class="tmpl" data-esc="date"><b>Change on a date</b><span>One dose and schedule up to a date, another from it</span></button>\n      </div>\n      <div class="row" id="p-chg" hidden style="margin:0 0 10px"><label for="p-chgdate" class="tiny muted">New dose or schedule starts on</label><input id="p-chgdate" type="date" style="width:auto"><button type="button" class="btn sm" id="p-chgok">Set up</button></div>\n      <div class="phhead"><span></span><span>Dose</span><span></span><span>Duration</span><span></span></div>\n      <div id="p-phases"></div>\n      <div class="spread" style="padding:9px 0 0">\n        <button type="button" class="btn ghost sm" id="p-addph">+ Add phase</button>\n        <span class="tiny muted" id="p-phsum"></span></div>\n      <div class="note"><span>ⓘ</span><span id="p-escnote"></span></div>'),
+            e.querySelector("#p-chgok").addEventListener("click", () => {
+              // Phase 1: the dose and schedule as they are now, up to the day before the change.
+              // Phase 2: a copy to edit, running from the change date on. Lengths count from the start date.
+              o();
+              const D = e.querySelector("#p-chgdate").value,
+                S0 = t.startDate || te();
+              if (!D || D <= S0) return void Ft("Pick a date after the protocol's start date.");
+              if (t.cycling) return void Ft("Turn off On/off cycling first: rest days would shift the change date.");
+              const cur = {
+                dose: be(t.dose),
+                unit: t.unit,
+                ps: ["daily", "weekdays", "interval"].includes(t.sched) ? t.sched : "",
+                pdays: (t.days || []).slice(),
+                pint: t.intervalDays,
+              };
+              ((t.phases = [
+                Object.assign({}, cur, { dur: ae(S0, D), durUnit: "days" }),
+                Object.assign({}, cur, { pdays: cur.pdays.slice(), dur: 0, durUnit: "weeks" }),
+              ]),
+                (e.querySelector("#p-chg").hidden = !0),
+                h(),
+                y(),
+                Ft("Set. Row 1 runs to " + de(ne(D, -1)) + ". Change row 2 to the new dose and schedule."));
+            }),
             e.querySelectorAll(".tmpl").forEach((e) =>
               e.addEventListener("click", () => {
+                if ("date" === e.dataset.esc) {
+                  const R = a.querySelector("#p-chg");
+                  return ((R.hidden = !1), void a.querySelector("#p-chgdate").focus());
+                }
                 (o(),
                   (t.phases =
                     "ld" === e.dataset.esc

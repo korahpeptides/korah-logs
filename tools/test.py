@@ -151,6 +151,31 @@ with sync_playwright() as pw:
                 check("AM + PM start date: one dose before, two from it", sp["before"] == [""] and sp["after"] == ["am", "pm"], sp)
                 check("AM + PM start date: calendar shows one dot before it", sp["dots"] == 1, sp)
                 check("AM + PM start date: shown and saved in the form", sp["shown"] and sp["saved"] == sp["F1"], sp)
+            if variant == "personal" and width == 1280:
+                cg = pg.evaluate("""() => {
+                  const S0 = '2026-09-01', D = '2026-10-20', E = '2026-10-28';
+                  d.compounds.push({id:'ct',name:'Testosterone',route:'SubQ',color:'#93362A'});
+                  d.protocols = [{id:'pt',compoundId:'ct',dose:50,unit:'mg',route:'SubQ',sched:'weekdays',days:[2,5],startDate:S0,active:true,phases:[]}];
+                  d.logs = [];
+                  for (let x = S0; x <= E; x = ne(x, 1)) { const w = ee(x).getDay();
+                    if (x < D ? w === 2 : (w === 2 || w === 5)) d.logs.push({id:'t'+x,protocolId:'pt',compoundId:'ct',date:x,status:'taken',doseMg:x < D ? 100 : 50}); }
+                  Mn('pt'); const m = Ot('#modal');
+                  const esc = m.querySelector('#p-esc'); esc.checked = true; esc.dispatchEvent(new Event('change'));
+                  m.querySelector('[data-esc="date"]').click();
+                  m.querySelector('#p-chgdate').value = D; m.querySelector('#p-chgok').click();
+                  const rows = m.querySelectorAll('#p-escbox .phrow');
+                  rows[0].querySelector('.ph-d').value = '100'; rows[0].querySelector('.ph-d').dispatchEvent(new Event('input'));
+                  rows[0].querySelector('[data-pd="0,5"]').click();
+                  m.querySelector('#p-save').click();
+                  const p = d.protocols[0], S = insStats(S0, E);
+                  return {n: rows.length, ph: p.phases.map(x=>[x.dose, x.dur, x.durUnit, x.ps, (x.pdays||[]).join('')]),
+                    missed: S.rows[0].missed, pct: S.pct, before: Ge(p,'2026-10-13').dose, after: Ge(p,'2026-10-23').dose,
+                    friBefore: Ye(p,'2026-10-16'), friAfter: Ye(p,'2026-10-23'), tueBefore: Ye(p,'2026-10-13'), open: !Ot('#scrim').hidden};
+                }""")
+                check("Change on a date: two phases split at the date", cg["n"] == 2 and cg["ph"][0][1] == 49 and cg["ph"][0][2] == "days", cg)
+                check("Change on a date: old dose before, new dose after", cg["before"] == 100 and cg["after"] == 50, cg)
+                check("Change on a date: no missed Fridays before the change", cg["missed"] == [] and cg["pct"] == 100 and not cg["friBefore"] and cg["friAfter"] and cg["tueBefore"], cg)
+                check("Change on a date: form saved and closed", not cg["open"], cg)
             check(f"{tag}: no page errors", not errs, errs)
             pg.close()
     br.close()

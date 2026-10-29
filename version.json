@@ -1,5 +1,5 @@
 {
-  "build": 70,
+  "build": 71,
   "date": "2026-10-29",
-  "note": "Protocols: AM + PM can start partway through, so earlier days don't show a missed PM dose"
+  "note": "Protocols: Change on a date sets up an old and a new dose or schedule from a chosen day"
 }
