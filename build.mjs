@@ -4,6 +4,8 @@
 //
 // What it does:
 //   - puts the styles and scripts from src/css and src/js into src/page.html
+//   - bundles third-party libraries marked <!-- @lib:NAME --> (the label QR library), so the page works offline
+//   - writes sw.js next to each page (the offline copy, from src/sw.js)
 //   - scrambles (minifies) them, keeping the /*! © Korah Peptides */ notices
 //   - sets COMMUNITY to false (personal) or true (community); code behind the other value is dropped
 //   - keeps <!-- @personal -->…<!-- @end --> only in the personal file,
@@ -51,11 +53,32 @@ function build(variant) {
     return `<script>${js.trim()}</script>`;
   });
 
-  if (/@(css|js|personal|community|end)\b/.test(page.replace(/<!--[^@][\s\S]*?-->/g, "")))
+  // Third-party libraries, bundled into the page so it works offline (b77). Licence comments are kept.
+  page = page.replace(/<!-- @lib:([a-z-]+) -->/g, (_, name) => {
+    const lib = {
+      qrcode: ["node_modules/qrcode-generator/qrcode.js", "qrcode-generator 1.4.4 · Copyright (c) 2009 Kazuhiko Arase · MIT licence"],
+    }[name];
+    if (!lib) throw new Error(`unknown library ${name}`);
+    const [src, notice] = lib;
+    const js = `/*! ${notice} */` + transformSync(read(src), { loader: "js", minify: true, legalComments: "inline", target: "es2020" }).code;
+    if (/<\/script/i.test(js)) throw new Error(`${src} contains "</script"`);
+    return `<script>${js.trim()}</script>`;
+  });
+
+  if (/@(css|js|lib|personal|community|end)\b/.test(page.replace(/<!--[^@][\s\S]*?-->/g, "")))
     throw new Error("a build marker was left in the page");
 
   mkdirSync(root + `dist/${variant}`, { recursive: true });
   writeFileSync(root + `dist/${variant}/index.html`, page);
+  // Offline copy (b77): the page is fetched fresh when online and served from the cache when not.
+  const sw = transformSync(read("src/sw.js"), {
+    loader: "js",
+    minify: true,
+    target: "es2020",
+    define: { __CACHE__: JSON.stringify(`kl-b${ver.build}-${variant}`) },
+  }).code;
+  if (/__CACHE__/.test(sw)) throw new Error("sw.js cache name not filled in");
+  writeFileSync(root + `dist/${variant}/sw.js`, sw);
   console.log(`dist/${variant}/index.html  ${stamp}  ${(page.length / 1024).toFixed(0)} KB`);
 }
 

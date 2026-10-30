@@ -3752,10 +3752,11 @@ let zn = null,
   Yn = !1,
   Zn = null,
   Xn = {},
+  XS = {}, // b77: last-seen value of each setting (kept apart from Xn, whose unknown keys count as deletions)
   _n = { status: "off", msg: "", at: 0 };
 function ea(e) {
   const t = {};
-  for (const n in e) "_m" !== n && (t[n] = e[n]);
+  for (const n in e) "_m" !== n && "_mk" !== n && (t[n] = e[n]);
   return JSON.stringify(t);
 }
 function ta() {
@@ -3769,14 +3770,25 @@ function ta() {
       Xn[a.id] !== n && ((a._m = e), (Xn[a.id] = n));
     }
   d._del = d._del || {};
-  for (const n in Xn) t[n] || d._del[n] || ((d._del[n] = e), delete Xn[n]);
+  // b77: "__settings" is not an item; before b77 it was marked deleted and re-stamped on every save.
+  for (const n in Xn) "__settings" === n || t[n] || d._del[n] || ((d._del[n] = e), delete Xn[n]);
   const n = ea(d.settings || {});
   Xn.__settings !== n && ((d.settings._m = e), (Xn.__settings = n));
+  // b77: each setting gets its own change time, so two devices changing different settings both keep theirs.
+  const st = d.settings || {};
+  st._mk = st._mk || {};
+  for (const k in st) {
+    if ("_m" === k || "_mk" === k) continue;
+    const v = JSON.stringify(st[k]);
+    XS[k] !== v && ((st._mk[k] = e), (XS[k] = v));
+  }
 }
 function na() {
   Xn = {};
   for (const e of Fn) for (const t of d[e] || []) t && t.id && (Xn[t.id] = ea(t));
   Xn.__settings = ea(d.settings || {});
+  XS = {};
+  for (const k in d.settings || {}) "_m" !== k && "_mk" !== k && (XS[k] = JSON.stringify(d.settings[k]));
 }
 function aa(e, t) {
   const n = Object.assign({}, t._del || {});
@@ -3795,9 +3807,30 @@ function aa(e, t) {
       .map((e) => o[e])
       .filter((e) => !(n[e.id] && n[e.id] > (e._m || 0)));
   }
-  const s = (e.settings && e.settings._m) || 0,
-    o = (t.settings && t.settings._m) || 0;
-  return ((a.settings = Object.assign(l().settings, o > s ? t.settings : e.settings)), a);
+  a.settings = SM(e.settings || {}, t.settings || {});
+  return a;
+}
+// b77: merge settings one by one. Each side's change time per setting is in _mk; a copy from before b77
+// has none, so its whole-settings time (_m) stands in. Ties keep this device's value.
+function SM(mine, theirs) {
+  const myAll = mine._m || 0,
+    theirAll = theirs._m || 0,
+    myKeys = mine._mk || {},
+    theirKeys = theirs._mk || {},
+    out = Object.assign(l().settings, theirAll > myAll ? theirs : mine),
+    times = {};
+  for (const k of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
+    if ("_m" === k || "_mk" === k) continue;
+    const inMine = k in mine,
+      inTheirs = k in theirs,
+      myT = inMine ? myKeys[k] || myAll : 0,
+      theirT = inTheirs ? theirKeys[k] || theirAll : 0;
+    out[k] = inTheirs && (!inMine || theirT > myT) ? theirs[k] : mine[k];
+    times[k] = Math.max(myT, theirT);
+  }
+  out._m = Math.max(myAll, theirAll);
+  out._mk = times;
+  return out;
 }
 const sa = (e) => {
     let t = "";
@@ -3820,20 +3853,29 @@ async function ia(e, t) {
     ["encrypt", "decrypt"],
   );
 }
+// b77: the synced copy is gzip-compressed before it is encrypted (z: 1). Text like this shrinks several
+// times over, which keeps it well under Firestore's 1 MB limit for one record.
+async function ZP(e) {
+  if ("undefined" == typeof CompressionStream) return null;
+  const t = new Blob([e]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(t).arrayBuffer());
+}
+async function ZU(e) {
+  const t = new Blob([e]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return await new Response(t).text();
+}
 async function la(e, t) {
-  if (!t) return { enc: 0, body: JSON.stringify(e) };
+  const j = JSON.stringify(e),
+    z = await ZP(j);
+  if (!t) return z ? { enc: 0, z: 1, body: sa(z) } : { enc: 0, body: j };
   const n = crypto.getRandomValues(new Uint8Array(16)),
     a = crypto.getRandomValues(new Uint8Array(12)),
     s = await ia(t, n),
-    o = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv: a },
-      s,
-      new TextEncoder().encode(JSON.stringify(e)),
-    );
-  return { enc: 1, salt: sa(n), iv: sa(a), body: sa(new Uint8Array(o)) };
+    o = await crypto.subtle.encrypt({ name: "AES-GCM", iv: a }, s, z || new TextEncoder().encode(j));
+  return Object.assign({ enc: 1, salt: sa(n), iv: sa(a), body: sa(new Uint8Array(o)) }, z ? { z: 1 } : {});
 }
 async function da(e, t) {
-  if (!e.enc) return JSON.parse(e.body);
+  if (!e.enc) return JSON.parse(e.z ? await ZU(oa(e.body)) : e.body);
   if (!t) throw new Error("This log is encrypted. Enter your passphrase.");
   const n = await ia(t, oa(e.salt));
   let a;
@@ -3842,8 +3884,15 @@ async function da(e, t) {
   } catch (e) {
     throw new Error("That passphrase does not open this log.");
   }
-  return JSON.parse(new TextDecoder().decode(a));
+  return JSON.parse(e.z ? await ZU(new Uint8Array(a)) : new TextDecoder().decode(a));
 }
+// b77: content of the synced lists and settings, without change times, to tell whether a sync changed anything.
+function SG(e) {
+  const t = [];
+  for (const n of Fn) t.push((e[n] || []).map(ea).sort().join("\u0001"));
+  return (t.push(ea(e.settings || {}), JSON.stringify(e._del || {})), t.join("\u0002"));
+}
+const SYNC_MAX = 1e6;
 function ra(e) {
   const t = {};
   for (const n of ["apiKey", "authDomain", "projectId", "storageBucket", "messagingSenderId", "appId"]) {
@@ -3877,12 +3926,9 @@ async function ca() {
     }
   throw new Error("Could not load Firebase. Check the connection. (" + ((e && e.message) || "") + ")");
 }
+// b77: true while Firebase may still be restoring a saved session (no password is kept any more).
 function ua() {
-  try {
-    return !!localStorage.getItem("protocol:pw");
-  } catch (e) {
-    return !1;
-  }
+  return !!(zn && zn.authI && !zn._ready);
 }
 function pa() {
   try {
@@ -3916,30 +3962,34 @@ async function ma() {
 }
 async function ga(e, t, n) {
   const a = await ma(),
-    o = n ? a.auth.createUserWithEmailAndPassword : a.auth.signInWithEmailAndPassword,
-    i = await o(a.authI, e, t),
     l = ha();
-  if (((l.email = e), !1 !== l.remember))
+  // b77: "Stay signed in" is handled by Firebase's own session storage; the password is never saved.
+  if (!1 === l.remember && a.auth.browserSessionPersistence)
     try {
-      localStorage.setItem("protocol:pw", t);
+      await a.auth.setPersistence(a.authI, a.auth.browserSessionPersistence);
     } catch (e) {}
-  return (s(), i.user);
+  const o = n ? a.auth.createUserWithEmailAndPassword : a.auth.signInWithEmailAndPassword,
+    i = await o(a.authI, e, t);
+  return ((l.email = e), s(), i.user);
 }
 async function va() {
   const e = ha();
   if (!e.enabled || !Kn() || !e.email) return null;
   const t = await ma();
-  if (t.authI.currentUser) return t.authI.currentUser;
-  let n = null;
-  try {
-    n = localStorage.getItem("protocol:pw");
-  } catch (e) {}
-  return n ? (await t.auth.signInWithEmailAndPassword(t.authI, e.email, n)).user : null;
+  // b77: wait for Firebase to restore the saved session instead of signing in again with a stored password.
+  if (!t._ready) {
+    try {
+      t.authI.authStateReady
+        ? await t.authI.authStateReady()
+        : await new Promise((r) => {
+            const u = t.auth.onAuthStateChanged(t.authI, () => (u(), r()));
+          });
+    } catch (e) {}
+    t._ready = !0;
+  }
+  return t.authI.currentUser || null;
 }
 async function ba() {
-  try {
-    localStorage.removeItem("protocol:pw");
-  } catch (e) {}
   (zn && zn.authI && (await zn.auth.signOut(zn.authI)), (_n = { status: "off", msg: "", at: 0 }), Ua());
 }
 function ya() {
@@ -3959,17 +4009,25 @@ async function fa(e) {
       i = await a.fs.getDoc(o);
     ta();
     let l = d;
+    const g = SG(d);
     if (i.exists()) {
       const e = await da(i.data(), n);
       l = aa(d, e);
     }
     ((d = l), na(), await t.set(JSON.stringify(d)));
-    const r = await la(d, n);
+    const r = await la(d, n),
+      sz = (r.body || "").length + 400;
+    if (sz > SYNC_MAX)
+      throw new Error(
+        "Your synced log is " +
+          Math.round(sz / 1024) +
+          " KB, over the 1 MB that one sync record can hold. Delete old Insights reports, then sync again.",
+      );
     ((r.updatedAt = Date.now()),
       await a.fs.setDoc(o, r),
-      (_n = { status: "ok", msg: "", at: Date.now() }),
+      (_n = { status: "ok", msg: "", at: Date.now(), kb: Math.round(sz / 1024) }),
       e || Ft("Synced."),
-      Ua(1));
+      SG(d) !== g ? Ua(1) : ka());
   } catch (t) {
     ((_n = { status: "error", msg: t.message || String(t), at: _n.at }),
       e || Ft(t.message || "Sync failed."),
@@ -3995,7 +4053,7 @@ function ka() {
         : "error" === _n.status
           ? `<span class="pill late">Problem</span> <span class="tiny" style="color:var(--alert)">${Ht(_n.msg)}</span>`
           : t
-            ? `<span class="pill done">Signed in as ${Ht(t.email)}</span>${_n.at ? ` <span class="tiny muted">last synced ${Ht(re(new Date(_n.at)))}</span>` : ""}`
+            ? `<span class="pill done">Signed in as ${Ht(t.email)}</span>${_n.at ? ` <span class="tiny muted">last synced ${Ht(re(new Date(_n.at)))}${_n.kb ? ` · ${_n.kb} KB of 1,000 KB` : ""}</span>` : ""}`
             : '<span class="pill">Not signed in</span>';
 }
 function Sa() {
@@ -4017,11 +4075,7 @@ function Sa() {
       ((e.auto = t.target.checked), s());
     }),
     a.querySelector("#sy-rem").addEventListener("change", (t) => {
-      if (((e.remember = t.target.checked), !e.remember))
-        try {
-          localStorage.removeItem("protocol:pw");
-        } catch (e) {}
-      s();
+      ((e.remember = t.target.checked), s());
     }));
   const l = async (e) => {
     let {
@@ -4033,10 +4087,6 @@ function Sa() {
       pw: a.querySelector("#sy-pw").value,
       ph: a.querySelector("#sy-ph").value,
     };
-    if (!n && ua())
-      try {
-        n = localStorage.getItem("protocol:pw");
-      } catch (e) {}
     if (!s && pa())
       try {
         s = localStorage.getItem("protocol:pass");
@@ -4162,7 +4212,7 @@ async function xa() {
         await va())
       )
         return ((Ma = 0), ka(), void fa(!0));
-      (e.email && localStorage.getItem("protocol:pw")) || ka();
+      ka();
     } catch (e) {
       Ma < 5
         ? (Ma++, setTimeout(xa, 2e3 * Ma))
@@ -4689,8 +4739,53 @@ function Ua(k) {
     if (a0 && /^(INPUT|SELECT|TEXTAREA)$/.test(a0.tagName) && Ot("#view").contains(a0)) return;
   }
   ("weight" !== r.tab || d.settings.trackWeight || (r.tab = "today"), dn());
-  const e = Ot("#view");
-  ((e.innerHTML = ""), e.appendChild((Ha[r.tab] || rn)()), window.scrollTo({ top: k ? y0 : 0 }));
+  const e = Ot("#view"),
+    tab0 = r.tab,
+    keep = k ? UF(e) : [];
+  ((e.innerHTML = ""), e.appendChild((Ha[r.tab] || rn)()), keep.length && r.tab === tab0 && UR(e, keep));
+  window.scrollTo({ top: k ? y0 : 0 });
+}
+// b77: a background redraw (Ua(1)) rebuilds the page from saved data. UF() notes every box on the page
+// whose contents differ from what the page drew (typed but not saved); UR() puts them back in the
+// rebuilt page. A box is put back only into the same box (same id, or same place, type and name) and
+// only when the rebuilt box was drawn with the same starting value, so fresh data is never overwritten.
+function UFv(el) {
+  if ("checkbox" === el.type || "radio" === el.type) return [el.checked, el.defaultChecked];
+  if ("SELECT" === el.tagName) {
+    const o = [...el.options],
+      df = o.find((x) => x.defaultSelected) || (el.multiple ? null : o[0]);
+    return [el.value, df ? df.value : ""];
+  }
+  return [el.value, el.defaultValue];
+}
+function UF(root) {
+  const out = [];
+  root.querySelectorAll("input,select,textarea").forEach((el, i) => {
+    if (/^(file|button|submit|reset|image|hidden)$/.test(el.type)) return;
+    const [v, dv] = UFv(el);
+    v !== dv && out.push({ i, id: el.id, name: el.name, tag: el.tagName, type: el.type, v, dv });
+  });
+  return out;
+}
+function UR(root, keep) {
+  const all = [...root.querySelectorAll("input,select,textarea")],
+    put = [];
+  for (const f of keep) {
+    let el = f.id ? root.querySelector("#" + CSS.escape(f.id)) : null;
+    if (!el && !f.id) {
+      const c = all[f.i];
+      c && !c.id && c.tagName === f.tag && c.type === f.type && c.name === f.name && (el = c);
+    }
+    if (!el || el.tagName !== f.tag || el.type !== f.type) continue;
+    const [v, dv] = UFv(el);
+    if (v !== dv || dv !== f.dv) continue;
+    "checkbox" === f.type || "radio" === f.type ? (el.checked = f.v) : (el.value = f.v);
+    put.push(el);
+  }
+  // then let each box update whatever it drives (totals, previews), as if it had just been typed in
+  for (const el of put)
+    el.isConnected &&
+      el.dispatchEvent(new Event("SELECT" === el.tagName || "checkbox" === el.type || "radio" === el.type ? "change" : "input", { bubbles: !0 }));
 }
 !(async function () {
   try {
@@ -4707,4 +4802,11 @@ function Ua(k) {
     e && s(),
     xa(),
     "memory" === t.kind && Ft("This copy cannot save. Export a backup before you close it."));
+  // b77: the sign-in password is no longer kept on the device (Firebase keeps the session itself).
+  try {
+    localStorage.removeItem("protocol:pw");
+  } catch (e) {}
+  // b77: offline copy of the app (src/sw.js). Only on a real web address, not a file opened from disk.
+  if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol))
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
 })();

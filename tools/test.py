@@ -212,6 +212,78 @@ with sync_playwright() as pw:
                 check("Change on a date: old dose before, new dose after", cg["before"] == 100 and cg["after"] == 50, cg)
                 check("Change on a date: no missed Fridays before the change", cg["missed"] == [] and cg["pct"] == 100 and not cg["friBefore"] and cg["friAfter"] and cg["tueBefore"], cg)
                 check("Change on a date: form saved and closed", not cg["open"], cg)
+            if width == 1280:
+                # b77: sync record is compressed, then encrypted; old records (no z) still read
+                cz = pg.evaluate("""async () => {
+                  const big = JSON.parse(JSON.stringify(d));
+                  for (let i = 0; i < 3000; i++) big.logs.push({id:'g'+i, protocolId:'p1', compoundId:'c1', date:ne(te(),-(i%400)), status:'taken', slot:i%2?'am':'pm', doseMg:2, site:'abd-l-in', _m:Date.now()});
+                  for (let i = 0; i < 10; i++) big.insights.push({id:'ri'+i, kind:'protocol', created:i, ai:{summary:'Lorem ipsum dolor sit amet. '.repeat(200)}});
+                  const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+                  const plain = JSON.stringify(big).length;
+                  const e1 = await la(big, 'correct horse'), r1 = await da(e1, 'correct horse');
+                  const e2 = await la(big, ''), r2 = await da(e2, '');
+                  const old1 = await da({enc:0, body:JSON.stringify(big)}, '');
+                  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+                  const k = await ia('correct horse', salt);
+                  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, k, new TextEncoder().encode(JSON.stringify(big)));
+                  const old2 = await da({enc:1, salt:sa(salt), iv:sa(iv), body:sa(new Uint8Array(ct))}, 'correct horse');
+                  return {z1:e1.z, z2:e2.z, ok1:eq(r1,big), ok2:eq(r2,big), old1:eq(old1,big), old2:eq(old2,big),
+                          plain, packed:e1.body.length, oldPacked:sa(new Uint8Array(ct)).length};
+                }""")
+                check(f"{tag}: sync record compressed and encrypted, reads back exactly", cz["z1"] == 1 and cz["ok1"], cz)
+                check(f"{tag}: sync record compressed without a passphrase, reads back exactly", cz["z2"] == 1 and cz["ok2"], cz)
+                check(f"{tag}: records written before b77 still read", cz["old1"] and cz["old2"], cz)
+                check(f"{tag}: compressed record under a quarter of the old size", cz["packed"] < cz["oldPacked"] / 4, cz)
+                print(f"     size: {cz['oldPacked']//1024} KB before b77 -> {cz['packed']//1024} KB")
+                # b77: settings merge one by one
+                sm = pg.evaluate("""() => {
+                  const a = SM({x:1, y:1, _m:100, _mk:{x:100, y:50}}, {x:2, y:2, _m:120, _mk:{x:60, y:120}});
+                  const b = SM({x:1, y:1, _m:100, _mk:{x:100, y:50}}, {x:2, y:2, _m:200});
+                  const c = SM({x:1, y:1, _m:300}, {x:2, z:9, _m:200, _mk:{x:200, z:200}});
+                  na(); const before = JSON.stringify(d.settings._mk || {});
+                  d.settings.trackWeight = false; ta();
+                  const mk = d.settings._mk;
+                  d.settings.trackWeight = true; ta();
+                  return {a:[a.x, a.y], b:[b.x, b.y], c:[c.x, c.y, c.z], stamped: Object.keys(mk).filter(k => !JSON.parse(before)[k] || JSON.parse(before)[k] !== mk[k])};
+                }""")
+                check(f"{tag}: settings changed on two devices both kept", sm["a"] == [1, 2], sm)
+                check(f"{tag}: settings from a pre-b77 copy merge as before", sm["b"] == [2, 2] and sm["c"] == [1, 1, 9], sm)
+                check(f"{tag}: only the changed setting gets a new time", sm["stamped"] == ["trackWeight"], sm)
+                # b77: a sync that brings nothing new is recognised; one that does is not
+                ng = pg.evaluate("""() => { const c = JSON.parse(JSON.stringify(d)); const g = SG(d);
+                  const same = SG(aa(d, c)) === g; c.logs.push({id:'new1', compoundId:'c1', date:te(), status:'taken', _m:Date.now()+1e4});
+                  return {same, changed: SG(aa(d, c)) !== g}; }""")
+                check(f"{tag}: sync with nothing new is told apart from one with changes", ng["same"] and ng["changed"], ng)
+                # b77: typed-but-unsaved boxes survive a background redraw; fresh data is not overwritten
+                ur = pg.evaluate("""() => {
+                  const mk = (v) => Bt('<div><input id="ua" value="' + v + '"><input name="nb" value="n"><select id="us"><option>A</option><option>B</option></select><input type="checkbox" id="uc"></div>');
+                  const r1 = mk('saved'); r1.querySelector('#ua').value = 'typed'; r1.querySelector('[name=nb]').value = 'typed2';
+                  r1.querySelector('#us').value = 'B'; r1.querySelector('#uc').checked = true;
+                  const k = UF(r1);
+                  const same = mk('saved'); UR(same, k);
+                  const fresh = mk('from other device'); UR(fresh, k);
+                  const clean = UF(mk('saved')).length;
+                  return {n:k.length, same:[same.querySelector('#ua').value, same.querySelector('[name=nb]').value, same.querySelector('#us').value, same.querySelector('#uc').checked],
+                          fresh: fresh.querySelector('#ua').value, clean};
+                }""")
+                check(f"{tag}: untouched page has nothing to keep", ur["clean"] == 0, ur)
+                check(f"{tag}: typed boxes, lists and ticks put back after a redraw", ur["n"] == 4 and ur["same"] == ["typed", "typed2", "B", True], ur)
+                check(f"{tag}: box changed by the other device is not overwritten", ur["fresh"] == "from other device", ur)
+                pg.evaluate("r.tab='tools'; Ua()")
+                pg.fill("#a-dose", "7.5")
+                pg.evaluate("document.activeElement && document.activeElement.blur(); Ua(1)")
+                check(f"{tag}: real page keeps a typed box through a sync redraw", pg.evaluate("document.querySelector('#a-dose').value") == "7.5")
+                dl = pg.evaluate("delete d._del.__settings; na(); ta(); d.settings.theme = 'dark'; ta(); '__settings' in d._del")
+                check(f"{tag}: saving no longer writes a fake settings deletion", dl is False, dl)
+                # b77: Insights keeps the newest 10 of each kind
+                if variant == "personal":
+                    ic = pg.evaluate("""() => { d.insights = [];
+                      for (let i = 0; i < 12; i++) d.insights.push({id:'p'+i, kind:'protocol', created:i});
+                      d.insights.push({id:'L0', kind:'lab', created:0});
+                      insSave({id:'p12', kind:'protocol', created:12});
+                      const p = d.insights.filter(x=>x.kind==='protocol').map(x=>x.created);
+                      return {n:p.length, min:Math.min(...p), max:Math.max(...p), lab:d.insights.some(x=>x.id==='L0')}; }""")
+                    check(f"{tag}: Insights keeps the newest 10 of each kind", ic == {"n": 10, "min": 3, "max": 12, "lab": True}, ic)
             check(f"{tag}: no page errors", not errs, errs)
             pg.close()
     br.close()
@@ -220,5 +292,36 @@ html = {v: open(os.path.join(ROOT, "dist", v, "index.html"), encoding="utf-8").r
 check("QR library only in personal", ("qrcode-generator" in html["personal"]) and ("qrcode-generator" not in html["community"]))
 check("analytics tag only in community", ("cloudflareinsights" in html["community"]) and ("cloudflareinsights" not in html["personal"]))
 check("copyright notice kept in both", all(h.count("© 2026 Korah Peptides") >= 3 for h in html.values()))
+check("label QR library bundled, not loaded from the internet", "cdnjs" not in html["personal"] and "var qrcode" in html["personal"].replace("var qrcode=", "var qrcode"))
+check("password never saved on the device", all('setItem("protocol:pw"' not in h for h in html.values()))
+
+# b77: offline. Serve each build from a local web address, let the offline copy install, go offline, reopen.
+import threading, http.server, functools
+with sync_playwright() as pw:
+    br = pw.chromium.launch()
+    for variant in ["personal", "community"]:
+        H = functools.partial(http.server.SimpleHTTPRequestHandler, directory=os.path.join(ROOT, "dist", variant))
+        H.log_message = lambda *a: None
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{srv.server_address[1]}/"
+        ctx = br.new_context()
+        ctx.route("**/*", lambda r: r.continue_() if r.request.url.startswith("http://127.0.0.1") else r.abort())
+        pg = ctx.new_page()
+        errs = []
+        pg.on("pageerror", lambda e: errs.append(str(e)))
+        pg.goto(url)
+        ready = pg.evaluate("Promise.race([navigator.serviceWorker.ready.then(()=>true), new Promise(r=>setTimeout(()=>r(false), 8000))])")
+        pg.reload(); pg.wait_for_timeout(300)
+        check(f"{variant}: offline copy installs", ready and pg.evaluate("!!navigator.serviceWorker.controller"))
+        ctx.set_offline(True)
+        pg.reload(); pg.wait_for_timeout(500)
+        opened = pg.evaluate("document.querySelector('#view') && document.querySelector('#view').children.length > 0 && typeof o === 'string' && o.endsWith('" + variant + "')")
+        check(f"{variant}: app opens with no connection", opened)
+        if variant == "personal":
+            check("personal: label QR works with no connection", pg.evaluate("typeof qrcode === 'function' && !!qrcode(0,'Q')"))
+        check(f"{variant}: no page errors offline", not errs, errs)
+        ctx.close(); srv.shutdown()
+    br.close()
 print("\n" + ("ALL PASSED" if not fails else f"{len(fails)} FAILED: " + ", ".join(fails)))
 sys.exit(1 if fails else 0)

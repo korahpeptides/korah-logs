@@ -8,7 +8,8 @@ The peptide tracker (personal build "rpt" at rickspeptidetracker.rdguindon.worke
   - `src/page.html` is the page shell. `<!-- @css:NAME -->` and `<!-- @js:NAME -->` mark where `src/css/NAME.css` and `src/js/NAME.js` go.
   - `src/js/app.js` is the main app. It was recovered from the scrambled b67 file, so most names are short (glossary below).
   - `src/js/labs.js` is the Labs tab and `src/js/insights.js` is the Insights tab. Both have readable names.
-- **`build.mjs`** makes `dist/personal/index.html` and `dist/community/index.html`. It scrambles the code and keeps the `/*! © Korah Peptides */` notices.
+- **`build.mjs`** makes `dist/personal/index.html` and `dist/community/index.html`. It scrambles the code and keeps the `/*! © Korah Peptides */` notices. It also bundles third-party libraries marked `<!-- @lib:NAME -->` (the label QR library, from `node_modules`) and writes `sw.js` next to each page from `src/sw.js`.
+- **`src/sw.js`** is the offline copy (b77). The page is fetched fresh whenever there is a connection and kept in a cache; with no connection (or no answer in 6 s) the cached copy opens. Firebase code and fonts are cached on first load. Sync, Insights and analytics are not touched.
 - **One source, two builds.** `COMMUNITY` is `false` in the personal build and `true` in the community build. Code behind the other value is dropped. In `page.html`, `<!-- @personal -->…<!-- @end -->` appears only in the personal file and `<!-- @community -->…<!-- @end -->` only in the community file.
   - **The community build has no:** label QR code, lot line or CoA link field (`Pn`, the label drawing, the label form); QR library; Insights tab.
   - **The community build has:** "Medications at the time" instead of "Statin / ezetimibe"; the Cloudflare Web Analytics tag.
@@ -50,6 +51,11 @@ npm test        # builds both files, runs tools/test.py on both (headless) and t
 5. A protocol can have two doses a day. Loop over `SL(p)` and pass the slot to `st()` / `lt()`.
 6. A phase can have its own schedule. Use `EF(p, date)` or `Ye(p, date)`, never `p.sched` directly.
 7. Tapping the dark area round a form must not close it.
+9. Sync record format (b77): JSON, gzip-compressed (`z: 1`), then encrypted when there is a passphrase. Records without `z` (before b77) still read. A record over 1,000 KB is refused with a message (Firestore holds at most 1 MB per record). An older copy of the app can't read a `z` record: it shows a sync error and writes nothing, so reload it.
+10. Settings sync one by one (b77): `ta()` stamps each changed setting in `d.settings._mk`, `SM()` merges per setting. The last-seen values live in `XS`, never in `Xn` (unknown keys in `Xn` are treated as deleted items).
+11. Insights keeps the newest 10 reports of each kind (`INS_KEEP`).
+12. A background redraw (`Ua(1)`) keeps typed-but-unsaved boxes (`UF`/`UR`) and is skipped when a sync brought nothing new (`SG`). Boxes are drawn with `value="…"` from saved data so this works; a box filled by code after drawing is left alone.
+13. The sign-in password is never stored. Firebase keeps the session; `va()` waits for it to restore.
 8. Sync switches on only at `my.korahpeptides.com` or a `rickspeptidetracker.*` address (`Vn`). The community build has its own shared Firebase (`Rn`, `Wn`).
 
 ## Glossary for `src/js/app.js`
@@ -85,5 +91,9 @@ npm test        # builds both files, runs tools/test.py on both (headless) and t
 | `Fn` | lists that sync |
 | `aa()` | sync merge |
 | `HL(c)` | half-life |
+| `la()` / `da()` | pack / unpack the sync record (compress, encrypt) |
+| `SM()` | merge settings one by one |
+| `SG()` | content signature used to tell whether a sync changed anything |
+| `UF()` / `UR()` | note / put back typed-but-unsaved boxes around a redraw |
 
 The full history up to b67 is in the Korah Peptides project doc `claude/tracker-build-log.md`. From b68 on, the history is this repo's commit log.

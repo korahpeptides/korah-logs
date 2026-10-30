@@ -1065,12 +1065,26 @@ async function insRunLabs(drawId, id) {
   });
 }
 
+var INS_KEEP = 10;
 function insSave(rep) {
   d.insights = d.insights || [];
   var ix = d.insights.findIndex(function (x) {
     return x.id === rep.id;
   });
   ix >= 0 ? (d.insights[ix] = rep) : d.insights.push(rep);
+  // b77: keep the newest INS_KEEP reports of each kind; older ones are dropped (and the drop syncs).
+  var seen = {};
+  d.insights = d.insights
+    .slice()
+    .sort(function (a, b) {
+      return (b.created || 0) - (a.created || 0);
+    })
+    .filter(function (x) {
+      var k = x.kind || "";
+      seen[k] = (seen[k] || 0) + 1;
+      return seen[k] <= INS_KEEP || x.id === rep.id;
+    })
+    .reverse();
   s();
   return rep;
 }
