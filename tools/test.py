@@ -62,8 +62,22 @@ SETUP = r"""
 
 TABS = ["instructions", "today", "log", "protocols", "stock", "history", "labs", "insights", "labels", "tools", "library", "weight", "settings"]
 
+def engines(pw):
+    """Chromium always; WebKit (the engine behind Safari on iPhone) too when it is installed."""
+    out = [("chromium", pw.chromium)]
+    try:
+        b = pw.webkit.launch()
+        b.close()
+        out.append(("webkit", pw.webkit))
+    except Exception:
+        print("\nWebKit (Safari's engine) is not installed here, so only Chromium runs. `python3 -m playwright install webkit` adds it.")
+    return out
+
+
 with sync_playwright() as pw:
-    br = pw.chromium.launch()
+  for ENGINE, engine in engines(pw):
+    print("\n#### " + ENGINE)
+    br = engine.launch()
     for variant in ["personal", "community"]:
         print("\n== " + variant)
         for width, theme in [(1280, "light"), (390, "dark")]:
@@ -79,13 +93,13 @@ with sync_playwright() as pw:
             check(f"{tag}: stamp says {variant}", stamp.endswith(variant), stamp)
             nav = pg.evaluate("ln().map(x=>x[0])")
             check(f"{tag}: Insights tab only in personal", ("insights" in nav) == (variant == "personal"), nav)
-            check(f"{tag}: write-ups are synced and in the empty state", pg.evaluate("Fn.includes('insGuides') && Array.isArray(l().insGuides)"))
+            check(f"{tag}: write-ups are synced and in the empty state", pg.evaluate("SYNC_LISTS.includes('insGuides') && Array.isArray(l().insGuides)"))
             for tab in TABS:
-                pg.evaluate(f"r.tab='{tab}'; r.labelId=null; Ua()")
+                pg.evaluate(f"r.tab='{tab}'; r.labelId=null; redrawPage()")
                 sw = pg.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1")
                 check(f"{tag}: {tab} opens with no sideways scroll", not sw)
             # labels: CoA and lot only in personal
-            pg.evaluate("r.tab='labels'; Ua()")
+            pg.evaluate("r.tab='labels'; redrawPage()")
             has_coa = pg.evaluate("!!document.querySelector('#lf-coa')")
             has_lot = pg.evaluate("!!document.querySelector('#lf-lot')")
             check(f"{tag}: label CoA/lot fields only in personal", (has_coa and has_lot) == (variant == "personal") and (has_coa or has_lot) == (variant == "personal"))
@@ -115,7 +129,7 @@ with sync_playwright() as pw:
                 check(f"{tag}: 2 lines saved and redraws", pg.evaluate("d.settings.labelLayout.m.bottom.two") is True and pg.evaluate("document.querySelector('#limg').src") != b2)
                 # typed wording survives a background redraw (sync) while focus is elsewhere
                 pg.fill("#lf-bottom", "Research Use Only")
-                pg.evaluate("document.activeElement.blur(); Ua(1)")
+                pg.evaluate("document.activeElement.blur(); redrawPage(1)")
                 check(f"{tag}: unsaved label wording survives a sync redraw", pg.evaluate("document.querySelector('#lf-bottom').value") == "Research Use Only")
                 pg.click("#lb-savebatch")
                 check(f"{tag}: saving clears the draft", pg.evaluate("!(r.lbDraft||{})[r.labelId] && d.batches[0].label.bottom") == "Research Use Only")
@@ -125,7 +139,7 @@ with sync_playwright() as pw:
                 pg.click("#lb-lay [data-a=reset]")
                 pg.wait_for_timeout(50)
                 check(f"{tag}: reset layout", pg.evaluate("d.settings.labelLayout") is None and pg.evaluate("document.querySelector('#limg').src") == before)
-            pg.evaluate("r.tab='labs'; Ua(); labDrawForm('dr1')")
+            pg.evaluate("r.tab='labs'; redrawPage(); labDrawForm('dr1')")
             lbl = pg.evaluate("document.querySelector('label[for=ld-st]').textContent")
             check(f"{tag}: draw form medication label", lbl == ("Statin / ezetimibe" if variant == "personal" else "Medications at the time"), lbl)
             pg.evaluate("Rt()")
@@ -138,7 +152,7 @@ with sync_playwright() as pw:
                   const p1 = JSON.parse(window.__calls[c1].messages[0].content.split('\\n\\n').slice(1).join('\\n\\n'));
                   const p2 = JSON.parse(window.__calls.at(-1).messages[0].content.split('\\n\\n').slice(1).join('\\n\\n'));
                   const L = await insRunLabs('dr1');
-                  r.tab='insights'; r.insOpen=r1.id; Ua();
+                  r.tab='insights'; r.insOpen=r1.id; redrawPage();
                   const txt = document.querySelector('#view').innerText;
                   return {same: JSON.stringify(r1.flags)===JSON.stringify(r2.flags) && r1.rating===r2.rating,
                     need1: p1.compound_guides_needed.length, need2: p2.compound_guides_needed.length,
@@ -175,7 +189,7 @@ with sync_playwright() as pw:
                            d.logs.push({id:'p'+i,protocolId:'ps',compoundId:'c1',date:dt,status:'taken',slot:'pm',doseMg:1}); } }
                   const S = insStats(ne(T,-10), ne(T,-1));
                   const before = SL(d.protocols[0], ne(F,-1)), after = SL(d.protocols[0], F);
-                  r.tab='history'; r.histView='calendar'; r.calDay=ne(F,-1); r.calMonth=null; Ua();
+                  r.tab='history'; r.histView='calendar'; r.calDay=ne(F,-1); r.calMonth=null; redrawPage();
                   const dots = document.querySelector('[data-calday="'+ne(F,-1)+'"]').querySelectorAll('.cdot').length;
                   Mn('ps'); const m = Ot('#modal');
                   const shown = m.querySelector('#p-sf').style.display !== 'none' && m.querySelector('#p-splitfrom').value === F;
@@ -220,15 +234,15 @@ with sync_playwright() as pw:
                   for (let i = 0; i < 10; i++) big.insights.push({id:'ri'+i, kind:'protocol', created:i, ai:{summary:'Lorem ipsum dolor sit amet. '.repeat(200)}});
                   const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
                   const plain = JSON.stringify(big).length;
-                  const e1 = await la(big, 'correct horse'), r1 = await da(e1, 'correct horse');
-                  const e2 = await la(big, ''), r2 = await da(e2, '');
-                  const old1 = await da({enc:0, body:JSON.stringify(big)}, '');
+                  const e1 = await packRecord(big, 'correct horse'), r1 = await unpackRecord(e1, 'correct horse');
+                  const e2 = await packRecord(big, ''), r2 = await unpackRecord(e2, '');
+                  const old1 = await unpackRecord({enc:0, body:JSON.stringify(big)}, '');
                   const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
-                  const k = await ia('correct horse', salt);
+                  const k = await keyFromPassphrase('correct horse', salt);
                   const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, k, new TextEncoder().encode(JSON.stringify(big)));
-                  const old2 = await da({enc:1, salt:sa(salt), iv:sa(iv), body:sa(new Uint8Array(ct))}, 'correct horse');
+                  const old2 = await unpackRecord({enc:1, salt:toBase64(salt), iv:toBase64(iv), body:toBase64(new Uint8Array(ct))}, 'correct horse');
                   return {z1:e1.z, z2:e2.z, ok1:eq(r1,big), ok2:eq(r2,big), old1:eq(old1,big), old2:eq(old2,big),
-                          plain, packed:e1.body.length, oldPacked:sa(new Uint8Array(ct)).length};
+                          plain, packed:e1.body.length, oldPacked:toBase64(new Uint8Array(ct)).length};
                 }""")
                 check(f"{tag}: sync record compressed and encrypted, reads back exactly", cz["z1"] == 1 and cz["ok1"], cz)
                 check(f"{tag}: sync record compressed without a passphrase, reads back exactly", cz["z2"] == 1 and cz["ok2"], cz)
@@ -237,43 +251,43 @@ with sync_playwright() as pw:
                 print(f"     size: {cz['oldPacked']//1024} KB before b77 -> {cz['packed']//1024} KB")
                 # b77: settings merge one by one
                 sm = pg.evaluate("""() => {
-                  const a = SM({x:1, y:1, _m:100, _mk:{x:100, y:50}}, {x:2, y:2, _m:120, _mk:{x:60, y:120}});
-                  const b = SM({x:1, y:1, _m:100, _mk:{x:100, y:50}}, {x:2, y:2, _m:200});
-                  const c = SM({x:1, y:1, _m:300}, {x:2, z:9, _m:200, _mk:{x:200, z:200}});
-                  na(); const before = JSON.stringify(d.settings._mk || {});
-                  d.settings.trackWeight = false; ta();
+                  const a = mergeSettings({x:1, y:1, _m:100, _mk:{x:100, y:50}}, {x:2, y:2, _m:120, _mk:{x:60, y:120}});
+                  const b = mergeSettings({x:1, y:1, _m:100, _mk:{x:100, y:50}}, {x:2, y:2, _m:200});
+                  const c = mergeSettings({x:1, y:1, _m:300}, {x:2, z:9, _m:200, _mk:{x:200, z:200}});
+                  rememberSeen(); const before = JSON.stringify(d.settings._mk || {});
+                  d.settings.trackWeight = false; stampChanges();
                   const mk = d.settings._mk;
-                  d.settings.trackWeight = true; ta();
+                  d.settings.trackWeight = true; stampChanges();
                   return {a:[a.x, a.y], b:[b.x, b.y], c:[c.x, c.y, c.z], stamped: Object.keys(mk).filter(k => !JSON.parse(before)[k] || JSON.parse(before)[k] !== mk[k])};
                 }""")
                 check(f"{tag}: settings changed on two devices both kept", sm["a"] == [1, 2], sm)
                 check(f"{tag}: settings from a pre-b77 copy merge as before", sm["b"] == [2, 2] and sm["c"] == [1, 1, 9], sm)
                 check(f"{tag}: only the changed setting gets a new time", sm["stamped"] == ["trackWeight"], sm)
                 # b77: a sync that brings nothing new is recognised; one that does is not
-                ng = pg.evaluate("""() => { const c = JSON.parse(JSON.stringify(d)); const g = SG(d);
-                  const same = SG(aa(d, c)) === g; c.logs.push({id:'new1', compoundId:'c1', date:te(), status:'taken', _m:Date.now()+1e4});
-                  return {same, changed: SG(aa(d, c)) !== g}; }""")
+                ng = pg.evaluate("""() => { const c = JSON.parse(JSON.stringify(d)); const g = contentSignature(d);
+                  const same = contentSignature(mergeData(d, c)) === g; c.logs.push({id:'new1', compoundId:'c1', date:te(), status:'taken', _m:Date.now()+1e4});
+                  return {same, changed: contentSignature(mergeData(d, c)) !== g}; }""")
                 check(f"{tag}: sync with nothing new is told apart from one with changes", ng["same"] and ng["changed"], ng)
                 # b77: typed-but-unsaved boxes survive a background redraw; fresh data is not overwritten
                 ur = pg.evaluate("""() => {
                   const mk = (v) => Bt('<div><input id="ua" value="' + v + '"><input name="nb" value="n"><select id="us"><option>A</option><option>B</option></select><input type="checkbox" id="uc"></div>');
                   const r1 = mk('saved'); r1.querySelector('#ua').value = 'typed'; r1.querySelector('[name=nb]').value = 'typed2';
                   r1.querySelector('#us').value = 'B'; r1.querySelector('#uc').checked = true;
-                  const k = UF(r1);
-                  const same = mk('saved'); UR(same, k);
-                  const fresh = mk('from other device'); UR(fresh, k);
-                  const clean = UF(mk('saved')).length;
+                  const k = findUnsaved(r1);
+                  const same = mk('saved'); restoreUnsaved(same, k);
+                  const fresh = mk('from other device'); restoreUnsaved(fresh, k);
+                  const clean = findUnsaved(mk('saved')).length;
                   return {n:k.length, same:[same.querySelector('#ua').value, same.querySelector('[name=nb]').value, same.querySelector('#us').value, same.querySelector('#uc').checked],
                           fresh: fresh.querySelector('#ua').value, clean};
                 }""")
                 check(f"{tag}: untouched page has nothing to keep", ur["clean"] == 0, ur)
                 check(f"{tag}: typed boxes, lists and ticks put back after a redraw", ur["n"] == 4 and ur["same"] == ["typed", "typed2", "B", True], ur)
                 check(f"{tag}: box changed by the other device is not overwritten", ur["fresh"] == "from other device", ur)
-                pg.evaluate("r.tab='tools'; Ua()")
+                pg.evaluate("r.tab='tools'; redrawPage()")
                 pg.fill("#a-dose", "7.5")
-                pg.evaluate("document.activeElement && document.activeElement.blur(); Ua(1)")
+                pg.evaluate("document.activeElement && document.activeElement.blur(); redrawPage(1)")
                 check(f"{tag}: real page keeps a typed box through a sync redraw", pg.evaluate("document.querySelector('#a-dose').value") == "7.5")
-                dl = pg.evaluate("delete d._del.__settings; na(); ta(); d.settings.theme = 'dark'; ta(); '__settings' in d._del")
+                dl = pg.evaluate("delete d._del.__settings; rememberSeen(); stampChanges(); d.settings.theme = 'dark'; stampChanges(); '__settings' in d._del")
                 check(f"{tag}: saving no longer writes a fake settings deletion", dl is False, dl)
                 # b77: Insights keeps the newest 10 of each kind
                 if variant == "personal":
@@ -287,13 +301,13 @@ with sync_playwright() as pw:
             if width == 1280:
                 # b78: absorption model
                 pk = pg.evaluate("""() => {
-                  const ke = Math.LN2/165, ka = KA(ke, 48); let best = 0, bh = 0;
-                  for (let h = 0; h <= 200; h += 0.1) { const v = AF(ke, ka, h); if (v > best) { best = v; bh = h; } }
-                  const flip = KA(Math.LN2/4, 30); let b2 = 0, h2 = 0;
-                  for (let h = 0; h <= 200; h += 0.1) { const v = AF(Math.LN2/4, flip, h); if (v > b2) { b2 = v; h2 = h; } }
-                  return {bh, h2, start: AF(ke, ka, 0), iv: AF(ke, Infinity, 0), peak: best,
-                    sema: TP({name:'Semaglutide', route:'SubQ'}), wegovy: TP({name:'Wegovy', route:'SubQ'}).src, reta: TP({name:'Retatrutide', route:'SubQ'}),
-                    bpc: TP({name:'BPC-157', route:'SubQ'}).h, own: TP({name:'Semaglutide', tPeak:'12'}), oral: TP({name:'X', route:'Oral'}).h};
+                  const ke = Math.LN2/165, ka = absorbRate(ke, 48); let best = 0, bh = 0;
+                  for (let h = 0; h <= 200; h += 0.1) { const v = fractionInBody(ke, ka, h); if (v > best) { best = v; bh = h; } }
+                  const flip = absorbRate(Math.LN2/4, 30); let b2 = 0, h2 = 0;
+                  for (let h = 0; h <= 200; h += 0.1) { const v = fractionInBody(Math.LN2/4, flip, h); if (v > b2) { b2 = v; h2 = h; } }
+                  return {bh, h2, start: fractionInBody(ke, ka, 0), iv: fractionInBody(ke, Infinity, 0), peak: best,
+                    sema: timeToPeak({name:'Semaglutide', route:'SubQ'}), wegovy: timeToPeak({name:'Wegovy', route:'SubQ'}).src, reta: timeToPeak({name:'Retatrutide', route:'SubQ'}),
+                    bpc: timeToPeak({name:'BPC-157', route:'SubQ'}).h, own: timeToPeak({name:'Semaglutide', tPeak:'12'}), oral: timeToPeak({name:'X', route:'Oral'}).h};
                 }""")
                 check(f"{tag}: dose peaks at its time to peak (48 h)", abs(pk["bh"] - 48) < 0.3, pk)
                 check(f"{tag}: slow absorption (peak later than 1/ke) solved too", abs(pk["h2"] - 30) < 0.3, pk)
@@ -307,13 +321,13 @@ with sync_playwright() as pw:
                   const keep = d.logs.slice(), T = Date.now();
                   for (let i = 0; i < 3000; i++) d.logs.push({id:'z'+i, compoundId:'c2', date:ne(te(),-(i%300)), status:'taken', doseMg:1, route:'SubQ'});
                   s();
-                  const c = Ce('c2'), ke = Math.LN2/HL(c), ka = KA(ke, TP(c,'SubQ').h); let ref = 0;
+                  const c = Ce('c2'), ke = Math.LN2/halfLifeOf(c), ka = absorbRate(ke, timeToPeak(c,'SubQ').h); let ref = 0;
                   for (const g of d.logs) { if (g.compoundId !== 'c2' || g.status !== 'taken') continue;
-                    const t0 = new Date(g.at || g.date+'T12:00').getTime(); if (t0 <= T) ref += be(g.doseMg)*AF(ke, ka, (T-t0)/36e5); }
-                  const v = Et('c2', T);
-                  r.tab = 'today'; const t1 = performance.now(); Ua(); const ms = performance.now() - t1;
+                    const t0 = new Date(g.at || g.date+'T12:00').getTime(); if (t0 <= T) ref += be(g.doseMg)*fractionInBody(ke, ka, (T-t0)/36e5); }
+                  const v = levelAt('c2', T);
+                  r.tab = 'today'; const t1 = performance.now(); redrawPage(); const ms = performance.now() - t1;
                   d.logs.push({id:'zz', compoundId:'c2', date:te(), at:new Date(T-36e5*24).toISOString(), status:'taken', doseMg:5, route:'SubQ'}); s();
-                  const v2 = Et('c2', T);
+                  const v2 = levelAt('c2', T);
                   d.logs = keep; s();
                   return {rel: Math.abs(v-ref)/ref, ms, grew: v2 > v + 3};
                 }""")
@@ -324,9 +338,81 @@ with sync_playwright() as pw:
                 # b78: compound form has Time to peak, and it saves
                 tp = pg.evaluate("""() => { $a('c2'); const m = Ot('#modal'); const f = m.querySelector('#c-tp');
                   const ph = f.placeholder, hint = f.parentNode.querySelector('.hint').textContent;
-                  f.value = '30'; m.querySelector('#c-save').click(); const saved = Ce('c2').tPeak, src = TP(Ce('c2')).src;
+                  f.value = '30'; m.querySelector('#c-save').click(); const saved = Ce('c2').tPeak, src = timeToPeak(Ce('c2')).src;
                   Ce('c2').tPeak = ''; s(); return {ph, hint, saved, src}; }""")
                 check(f"{tag}: compound form shows and saves Time to peak", tp["ph"] == "24" and "rough" in tp["hint"] and tp["saved"] == "30" and tp["src"] == "yours", tp)
+            if width == 1280:
+                # b79: protocol form keeps a draft again (b78 broke it by reusing the name DS)
+                dr = pg.evaluate("""async () => { localStorage.removeItem('protocol:draft'); Mn();
+                  const m = Ot('#modal'), n = m.querySelector('#p-name'); n.value = 'Draft check'; n.dispatchEvent(new Event('input', {bubbles:true}));
+                  await new Promise(r => setTimeout(r, 400)); const v = localStorage.getItem('protocol:draft'); Rt(); localStorage.removeItem('protocol:draft');
+                  return v ? JSON.parse(v).name : null; }""")
+                check(f"{tag}: protocol form saves a draft as you type", dr == "Draft check", dr)
+                # b79: daily copies on this device
+                sn = pg.evaluate("""async () => {
+                  await new Promise((res) => { const q = indexedDB.deleteDatabase(SNAP_DB); q.onsuccess = q.onerror = q.onblocked = res; });
+                  await snapDaily(); await snapDaily();
+                  const one = (await snapList()).filter(x => x.kind === 'daily').length;
+                  for (let i = 1; i <= 16; i++) await snapReq('readwrite', st => st.put({id:'daily-old'+i, kind:'daily', at:i, date:'2026-01-'+String(i).padStart(2,'0'), counts:{}, z:0, body:'{}'}));
+                  await snapPrune();
+                  const list = await snapList(), dailies = list.filter(x => x.kind === 'daily');
+                  const todayKept = dailies.some(x => x.date === te());
+                  // restore: change things after the copy, then put the copy back
+                  const copyId = dailies.find(x => x.date === te()).id;
+                  const before = {logs: d.logs.length, protos: d.protocols.map(p=>p.id).sort().join()};
+                  d.logs.push({id:'after1', compoundId:'c2', date:te(), status:'taken', doseMg:9}); const gone = d.protocols.pop(); s();
+                  d.settings.sync = {enabled:true, email:'keep@me', auto:true}; s();
+                  rememberSeen();
+                  const ok = await snapRestore(copyId);
+                  const now = Date.now();
+                  const after = {logs: d.logs.length, protos: d.protocols.map(p=>p.id).sort().join()};
+                  stampChanges();
+                  return {one, nDaily: dailies.length, todayKept, ok, same: JSON.stringify(before) === JSON.stringify(after),
+                    stamped: d.protocols.every(p => now - p._m < 5000), deleted: !!d._del['after1'], back: !d._del[gone.id],
+                    syncKept: d.settings.sync.email === 'keep@me', beforeCopy: (await snapList()).some(x => x.kind === 'before' && /before restoring/.test(x.why)),
+                    panel: (r.tab = 'settings', redrawPage(), await new Promise(r => setTimeout(r, 300)), document.querySelectorAll('#snap-list [data-snap]').length)};
+                }""")
+                check(f"{tag}: one daily copy per day", sn["one"] == 1, sn)
+                check(f"{tag}: 14 daily copies kept, today's among them", sn["nDaily"] == 14 and sn["todayKept"], sn)
+                check(f"{tag}: restoring puts the copy back", sn["ok"] and sn["same"], sn)
+                check(f"{tag}: restored items win the next sync; later additions are deleted everywhere", sn["stamped"] and sn["deleted"] and sn["back"], sn)
+                check(f"{tag}: restore keeps this device's sync sign-in and keeps a copy first", sn["syncKept"] and sn["beforeCopy"], sn)
+                check(f"{tag}: Settings lists the copies", sn["panel"] >= 14, sn)
+                # b79: which app this is
+                ak = pg.evaluate("""() => { r.tab = 'settings'; redrawPage(); return {brand: (document.querySelector('.brand .appkind')||{}).textContent,
+                  line: (document.querySelector('#view .appkind-line')||{}).textContent || '', title: document.title}; }""")
+                want = "Personal" if variant == "personal" else "Community"
+                check(f"{tag}: side menu and Settings say this is the {want} app", ak["brand"] == want and want in ak["line"] and ak["title"].endswith(want), ak)
+                # b79: old deletion markers are dropped after 90 days, "__" keys always
+                tb = pg.evaluate("""() => { const old = Date.now() - 91*864e5, recent = Date.now() - 5*864e5;
+                  const a = JSON.parse(JSON.stringify(d)); a._del = {gone_old: old, gone_new: recent, __settings: recent};
+                  const m = mergeData(a, {_del: {}}); return Object.keys(m._del).sort(); }""")
+                check(f"{tag}: deletion markers older than 90 days dropped", tb == ["gone_new"], tb)
+                # b79: two devices syncing at once: the cloud copy ends up with both devices' changes
+                tx = pg.evaluate("""async () => {
+                  localStorage.setItem('protocol:pass', 'correct horse battery');
+                  d.settings.sync = {enabled:true, email:'t@t', auto:false};
+                  const store = {data:null, ver:0}; let tries = 0, other = null;
+                  fb = {instance:{}, db:{}, authI:{currentUser:{uid:'u1'}}, auth:{}, fs:{
+                    doc: () => 'logs/u1',
+                    getDoc: async () => ({exists: () => !!store.data, data: () => store.data}),
+                    setDoc: async (_, v) => { store.data = v; store.ver++; },
+                    runTransaction: async (_, fn) => {
+                      for (;;) { tries++; const v0 = store.ver; let w = null;
+                        const out = await fn({get: async () => ({exists: () => !!store.data, data: () => store.data}), set: (_, v) => { w = v; }});
+                        if (tries === 1) { store.data = other; store.ver++; }   // the other device writes in between
+                        if (store.ver !== v0) continue;                        // Firestore would retry
+                        store.data = w; store.ver++; return out; } } }};
+                  const o = JSON.parse(JSON.stringify(d)); o.logs.push({id:'other1', compoundId:'c2', date:te(), status:'taken', doseMg:1, _m: Date.now()});
+                  other = await packRecord(o, 'correct horse battery');
+                  d.logs.push({id:'mine1', compoundId:'c2', date:te(), status:'taken', doseMg:2}); stampChanges();
+                  await syncNow(true);
+                  const cloud = await unpackRecord(store.data, 'correct horse battery');
+                  const ids = cloud.logs.map(x => x.id);
+                  fb = null; d.settings.sync = {enabled:false}; localStorage.removeItem('protocol:pass');
+                  return {tries, both: ids.includes('other1') && ids.includes('mine1'), local: d.logs.some(x => x.id === 'other1'), state: syncState.status, msg: syncState.msg};
+                }""")
+                check(f"{tag}: two devices syncing at once keep both changes", tx["tries"] == 2 and tx["both"] and tx["local"] and tx["state"] == "ok", tx)
             check(f"{tag}: no page errors", not errs, errs)
             pg.close()
     br.close()
@@ -337,6 +423,7 @@ check("analytics tag only in community", ("cloudflareinsights" in html["communit
 check("copyright notice kept in both", all(h.count("© 2026 Korah Peptides") >= 3 for h in html.values()))
 check("label QR library bundled, not loaded from the internet", "cdnjs" not in html["personal"] and "var qrcode" in html["personal"].replace("var qrcode=", "var qrcode"))
 check("password never saved on the device", all('setItem("protocol:pw"' not in h for h in html.values()))
+check("page titles name the app", "<title>Protocol — Personal</title>" in html["personal"] and "<title>Protocol — Community</title>" in html["community"])
 check("passphrase required on both builds", all("encryption, required" in h and "Leave blank to store it unencrypted" not in h and "Repeat passphrase" in h for h in html.values()))
 
 # b77: offline. Serve each build from a local web address, let the offline copy install, go offline, reopen.

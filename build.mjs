@@ -20,6 +20,31 @@ const root = new URL(".", import.meta.url).pathname;
 const read = (p) => readFileSync(root + p, "utf8");
 const ver = JSON.parse(read("version.json"));
 
+// The page's scripts share one set of top-level names. A name declared twice (in one file or across files)
+// silently replaces the first; b78 did this to DS() and broke the protocol-form draft. Parsing all the
+// scripts together as one module turns that into a build error.
+{
+  const names = [...read("src/page.html").matchAll(/<!-- @js:([a-z]+) -->/g)].map((m) => m[1]);
+  const all = names.map((n) => read(`src/js/${n}.js`)).join("\n;\n");
+  // esbuild allows two functions with one name, so check those directly (top-level ones start a line)
+  const seen = new Map(),
+    twice = [];
+  for (const n of names)
+    for (const m of read(`src/js/${n}.js`).matchAll(/^(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(/gm))
+      seen.has(m[1]) ? twice.push(`${m[1]} (${seen.get(m[1])}.js and ${n}.js)`) : seen.set(m[1], n);
+  if (twice.length) throw new Error("Top-level function declared twice: " + twice.join(", "));
+  try {
+    transformSync(all, {
+      loader: "js",
+      format: "esm",
+      define: { COMMUNITY: "false", __BUILD_STAMP__: '""', __BUILD_NOTE__: '""' },
+    });
+  } catch (e) {
+    const dup = (e.errors || []).filter((x) => /already been declared/.test(x.text));
+    if (dup.length) throw new Error("Top-level name declared twice:\n" + dup.map((x) => "  " + x.text).join("\n"));
+  }
+}
+
 function build(variant) {
   const community = variant === "community";
   const stamp = `${ver.date} · b${ver.build} ${variant}`;

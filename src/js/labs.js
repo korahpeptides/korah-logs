@@ -529,14 +529,14 @@ function labView() {
   ctl.querySelectorAll("[data-lv]").forEach(function (b) {
     b.addEventListener("click", function () {
       r.labView = b.dataset.lv;
-      Ua();
+      redrawPage();
     });
   });
   var fl = ctl.querySelector("#lab-flag");
   if (fl)
     fl.addEventListener("change", function () {
       r.labFlag = fl.checked;
-      Ua();
+      redrawPage();
     });
   el.appendChild(ctl);
   var body =
@@ -656,7 +656,7 @@ function labByTest(tests) {
     var b = e.target.closest("[data-ltest]");
     if (b) {
       r.labTest = b.dataset.ltest;
-      Ua();
+      redrawPage();
     }
   });
   return wrap;
@@ -737,7 +737,7 @@ function labTable(tests, draws) {
     var b = e.target.closest("[data-ltest]");
     if (b) {
       r.labTest = b.dataset.ltest;
-      Ua();
+      redrawPage();
       return;
     }
     var dd = e.target.closest("[data-ldraw]");
@@ -810,7 +810,7 @@ function labDetail(id) {
   );
   el.querySelector("#lab-back").addEventListener("click", function () {
     r.labTest = null;
-    Ua();
+    redrawPage();
   });
   el.querySelector("#lab-edit").addEventListener("click", function () {
     labTestForm(id);
@@ -1031,8 +1031,8 @@ function labDrawForm(id) {
     ix >= 0 ? (d.labDraws[ix] = dr) : d.labDraws.push(dr);
     s();
     Rt();
-    Ua();
-    Ft("Draw saved.");
+    redrawPage();
+    toast("Draw saved.");
   });
   var del = m.querySelector("#ld-del");
   if (del)
@@ -1047,8 +1047,8 @@ function labDrawForm(id) {
       });
       s();
       Rt();
-      Ua();
-      Ft("Draw deleted.");
+      redrawPage();
+      toast("Draw deleted.");
     });
 }
 function labTestForm(id) {
@@ -1163,8 +1163,8 @@ function labTestForm(id) {
     ix >= 0 ? (d.labTests[ix] = t) : d.labTests.push(t);
     s();
     Rt();
-    Ua();
-    Ft("Test saved.");
+    redrawPage();
+    toast("Test saved.");
   });
   var del = m.querySelector("#lt-del");
   if (del)
@@ -1185,8 +1185,8 @@ function labTestForm(id) {
       r.labTest = null;
       s();
       Rt();
-      Ua();
-      Ft("Test deleted.");
+      redrawPage();
+      toast("Test deleted.");
     });
 }
 
@@ -1409,7 +1409,7 @@ function labApply(j) {
   s();
   r.labTest = null;
   r.labHelp = false;
-  Ua();
+  redrawPage();
   var msg =
     "Imported " +
     nr +
@@ -1462,7 +1462,7 @@ function labApply(j) {
           .join(""),
       '<button class="btn" data-close>OK</button>',
     );
-  } else Ft(msg + " Check a few against your reports.");
+  } else toast(msg + " Check a few against your reports.");
 }
 
 function labImport(e) {
@@ -1472,7 +1472,7 @@ function labImport(e) {
   rd.onload = function () {
     var p = labParse(rd.result);
     if (p.err) {
-      Ft(p.err);
+      toast(p.err);
       return;
     }
     labApply(p.j);
@@ -1493,7 +1493,7 @@ function labPasteForm() {
   m.querySelector("#lp-go").addEventListener("click", function () {
     var p = labParse(m.querySelector("#lp-t").value);
     if (p.err) {
-      Ft(p.err);
+      toast(p.err);
       return;
     }
     Rt();
@@ -1527,14 +1527,14 @@ async function labCopyPrompt(btn) {
         btn.textContent = "Copy the instructions";
       }, 2500);
     }
-    Ft("Instructions copied. Paste them into the AI chat.");
+    toast("Instructions copied. Paste them into the AI chat.");
   } else {
-    Ft('Could not copy. Open "See the instructions" below and copy the text by hand.');
+    toast('Could not copy. Open "See the instructions" below and copy the text by hand.');
   }
 }
 
 function labHelpView() {
-  var synced = typeof jn !== "undefined" && jn;
+  var synced = typeof SYNC_HERE !== "undefined" && SYNC_HERE;
   var el = Bt('<div class="stack lab-root howto-wrap"></div>');
   el.appendChild(
     Bt(
@@ -1544,7 +1544,7 @@ function labHelpView() {
   );
   el.querySelector("#lh-back").addEventListener("click", function () {
     r.labHelp = false;
-    Ua();
+    redrawPage();
   });
 
   el.appendChild(
@@ -1618,7 +1618,7 @@ document.addEventListener("click", function (e) {
     r.tab = "labs";
     r.labTest = null;
     r.labHelp = true;
-    Ua();
+    redrawPage();
   }
 });
 
@@ -1681,7 +1681,7 @@ function labCsv() {
       })
       .join("\n");
   Ea("labs-" + te() + ".csv", new Blob([csv], { type: "text/csv" }));
-  Ft("Spreadsheet downloaded.");
+  toast("Spreadsheet downloaded.");
 }
 
 /* ---------- History → List: filter to one compound ---------- */
@@ -1727,13 +1727,13 @@ function histListBar() {
   );
   bar.querySelector("#h-comp").addEventListener("change", function (e) {
     r.histComp = e.target.value || null;
-    Ua();
+    redrawPage();
   });
   var all = bar.querySelector("#h-all");
   if (all)
     all.addEventListener("click", function () {
       r.histComp = null;
-      Ua();
+      redrawPage();
     });
   el.appendChild(bar);
   if (r.histComp) {
@@ -1787,6 +1787,6 @@ document.addEventListener("click", function (e) {
   var b = e.target.closest && e.target.closest("[data-hcomp]");
   if (b) {
     r.histComp = b.dataset.hcomp;
-    Ua();
+    redrawPage();
   }
 });

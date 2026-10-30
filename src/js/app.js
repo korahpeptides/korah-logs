@@ -39,15 +39,15 @@ const e = "protocol:v2",
   })();
 let n = null,
   a = !1,
-  DSV = 0; // b78: bumped on every save; the level estimate's dose cache (DS) rebuilds when it changes
+  saveCount = 0; // b78: bumped on every save; the level estimate's dose cache (doseList) rebuilds when it changes
 function s() {
-  (DSV++,
+  (saveCount++,
     clearTimeout(n),
     (n = setTimeout(async () => {
       try {
-        (ta(), await t.set(JSON.stringify(d)), wa());
+        (stampChanges(), await t.set(JSON.stringify(d)), syncSoon());
       } catch (e) {
-        a || ((a = !0), Ft("Could not save. Export a backup from Settings."));
+        a || ((a = !0), toast("Could not save. Export a backup from Settings."));
       }
     }, 200)));
 }
@@ -1268,7 +1268,7 @@ function Dt(e) {
   const n = be(e.sealed) * be(e.vialMg) + be(e.openMg);
   return Math.max(0, Math.min(100, 100 * (1 - n / t)));
 }
-function HL(c) {
+function halfLifeOf(c) {
   if (!c) return 0;
   const v = be(c.halfLife);
   if (v) return v;
@@ -1279,8 +1279,8 @@ function HL(c) {
 // half-life (one-compartment model, first-order absorption):
 //   amount(h) = dose × ka/(ka−ke) × (e^(−ke·h) − e^(−ka·h)),  ke = ln2 / half-life
 // ka is solved from the time to peak: tpeak = ln(ka/ke)/(ka−ke). No time to peak (IV) means no delay.
-// Time to peak, in order: the compound's own setting, a published figure (TPK), a rough figure by route (TPD).
-const TPK = new Map(
+// Time to peak, in order: the compound's own setting, a published figure (PEAK_TIMES), a rough figure by route (roughPeakTime).
+const PEAK_TIMES = new Map(
   [
     ["Semaglutide", 48, "label: 1–3 days"],
     ["Tirzepatide", 24, "label: median 24 h (8–72 h)"],
@@ -1288,24 +1288,24 @@ const TPK = new Map(
     ["Cagrilintide", 48, "phase 1b trial: median 24–72 h"],
   ].map((x) => [y(x[0]), x]),
 );
-function TPD(route, hl) {
+function roughPeakTime(route, hl) {
   return "IV" === route ? 0 : "Oral" === route ? 1.5 : "Nasal" === route ? 0.5 : "Topical" === route ? 4 : hl >= 24 ? 24 : 0.5;
 }
 // {h: hours to peak, src: "yours" | "published" | "rough", note}
-function TP(c, route) {
+function timeToPeak(c, route) {
   const r = route || (c && c.route) || "SubQ";
   if (!c || "IV" === r) return { h: 0, src: "published", note: "IV: no absorption delay" };
   const v = be(c.tPeak);
   if (v > 0) return { h: v, src: "yours", note: "your setting" };
-  const k = TPK.get(y(c.name));
+  const k = PEAK_TIMES.get(y(c.name));
   if (k) return { h: k[1], src: "published", note: k[2] };
-  return { h: TPD(r, HL(c)), src: "rough", note: "rough guess for " + r + (HL(c) >= 24 && /SubQ|IM/.test(r) ? ", long-acting" : "") };
+  return { h: roughPeakTime(r, halfLifeOf(c)), src: "rough", note: "rough guess for " + r + (halfLifeOf(c) >= 24 && /SubQ|IM/.test(r) ? ", long-acting" : "") };
 }
-const KAC = new Map();
-function KA(ke, tp) {
+const absorbRateCache = new Map();
+function absorbRate(ke, tp) {
   if (!(tp > 0)) return 1 / 0;
   const k = ke + "|" + tp;
-  if (KAC.has(k)) return KAC.get(k);
+  if (absorbRateCache.has(k)) return absorbRateCache.get(k);
   const f = (ka) => (Math.abs(ka - ke) < 1e-12 ? 1 / ke : Math.log(ka / ke) / (ka - ke));
   let lo = 1e-7,
     hi = 1e4;
@@ -1314,56 +1314,56 @@ function KA(ke, tp) {
     f(m) > tp ? (lo = m) : (hi = m);
   }
   const r = Math.sqrt(lo * hi);
-  return (KAC.set(k, r), r);
+  return (absorbRateCache.set(k, r), r);
 }
 // fraction of one dose in the body h hours after it was taken
-function AF(ke, ka, h) {
+function fractionInBody(ke, ka, h) {
   if (h < 0) return 0;
   if (!isFinite(ka)) return Math.exp(-ke * h);
   if (Math.abs(ka - ke) < 1e-9 * ke) return ke * h * Math.exp(-ke * h);
   return (ka / (ka - ke)) * (Math.exp(-ke * h) - Math.exp(-ka * h));
 }
 // taken doses of one compound as [time ms, dose, ka, ignore-after hours], oldest first; rebuilt after each save
-let DSC = null;
-function DS(cid) {
-  (DSC && DSC.v === DSV && DSC.d === d && DSC.logs === d.logs) || (DSC = { v: DSV, d: d, logs: d.logs, m: new Map() });
-  let r = DSC.m.get(cid);
+let doseCache = null;
+function doseList(cid) {
+  (doseCache && doseCache.v === saveCount && doseCache.d === d && doseCache.logs === d.logs) || (doseCache = { v: saveCount, d: d, logs: d.logs, m: new Map() });
+  let r = doseCache.m.get(cid);
   if (r) return r;
   r = [];
   const c = Ce(cid),
-    hl = c ? HL(c) : 0;
+    hl = c ? halfLifeOf(c) : 0;
   if (hl) {
     const ke = Math.LN2 / hl;
     for (const g of d.logs) {
       if (g.compoundId !== cid || "taken" !== g.status) continue;
-      const ka = KA(ke, TP(c, g.route).h);
+      const ka = absorbRate(ke, timeToPeak(c, g.route).h);
       r.push([new Date(g.at || g.date + "T12:00").getTime(), be(g.doseMg), ka, 30 * Math.max(hl, isFinite(ka) ? Math.LN2 / ka : 0)]);
     }
     r.sort((a, b) => a[0] - b[0]);
   }
-  return (DSC.m.set(cid, r), r);
+  return (doseCache.m.set(cid, r), r);
 }
-function Et(e, t) {
+function levelAt(e, t) {
   const n = Ce(e),
-    a = n ? HL(n) : 0;
+    a = n ? halfLifeOf(n) : 0;
   if (!a) return null;
   const ke = Math.LN2 / a;
   let s = 0;
-  for (const [o, dose, ka, far] of DS(e)) {
+  for (const [o, dose, ka, far] of doseList(e)) {
     if (o > t) break;
     const h = (t - o) / 36e5;
-    h < far && (s += dose * AF(ke, ka, h));
+    h < far && (s += dose * fractionInBody(ke, ka, h));
   }
   return s;
 }
 // highest estimated level over the last `t` days (3-hour steps), used as the bar's full width
-function Tt(e, t = 30) {
+function recentPeak(e, t = 30) {
   const n = Ce(e);
-  if (!n || !HL(n) || !DS(e).length) return 0;
+  if (!n || !halfLifeOf(n) || !doseList(e).length) return 0;
   let a = 0;
   const s = Date.now();
   for (let n = 24 * t; n >= 0; n -= 3) {
-    const t = Et(e, s - 36e5 * n);
+    const t = levelAt(e, s - 36e5 * n);
     t > a && (a = t);
   }
   return a;
@@ -1460,7 +1460,7 @@ function Qt(e, t) {
     n && e.focus());
 }
 let Nt;
-function Ft(e) {
+function toast(e) {
   const t = Ot("#toast");
   ((t.textContent = e),
     (t.hidden = !1),
@@ -1480,7 +1480,7 @@ function Vt(e, t, n) {
   a && a.focus();
 }
 function Rt() {
-  ((Ot("#scrim").hidden = !0), (Ot("#modal").innerHTML = ""), r.dirty && ((r.dirty = !1), Ua()));
+  ((Ot("#scrim").hidden = !0), (Ot("#modal").innerHTML = ""), r.dirty && ((r.dirty = !1), redrawPage()));
 }
 function Wt(e, t, n) {
   const a = t || 100,
@@ -1594,15 +1594,24 @@ function ln() {
     e
   );
 }
+// b79: which app this is, shown in the side menu, Settings and the sync box.
+const APP_KIND = COMMUNITY ? "Community" : "Personal",
+  APP_OTHER = COMMUNITY ? "Personal" : "Community";
+function appKindBadge() {
+  return `<span class="appkind">${APP_KIND}</span>`;
+}
+function appKindLine(more) {
+  return `<div class="appkind-line">${appKindBadge()}<span>You are in the <b>${APP_KIND}</b> app (${Ht(location.hostname || "this file")}).${more ? " " + more : ""}</span></div>`;
+}
 function dn() {
   const e = it(te()).reduce((a, e) => a + SLO(e).length, 0),
     t = Ot("#rail");
   t.innerHTML = "";
   const n = Bt(
-    '<div class="brand"><b>Protocol</b><button class="addbtn" id="quickAdd" title="Log a shot" aria-label="Log a shot">+</button></div>',
+    '<div class="brand"><b>Protocol</b>' + appKindBadge() + '<button class="addbtn" id="quickAdd" title="Log a shot" aria-label="Log a shot">+</button></div>',
   );
   (n.querySelector("#quickAdd").addEventListener("click", () => {
-    ((r.tab = "log"), (r.logDraft = null), Ua());
+    ((r.tab = "log"), (r.logDraft = null), redrawPage());
   }),
     t.appendChild(n));
   for (const [n, a, s] of ln()) {
@@ -1610,7 +1619,7 @@ function dn() {
       `<button class="navbtn" aria-current="${r.tab === n}">${s}<span>${a}</span>${"today" === n && e ? `<span class="dotcount">${e}</span>` : ""}</button>`,
     );
     (o.addEventListener("click", () => {
-      ((r.tab = n), (r.sel = null), (r.labTest = null), (r.labHelp = !1), (r.insOpen = null), Ua());
+      ((r.tab = n), (r.sel = null), (r.labTest = null), (r.labHelp = !1), (r.insOpen = null), redrawPage());
     }),
       t.appendChild(o));
   }
@@ -1686,7 +1695,7 @@ function rn() {
   }
   o.appendChild(i);
   const p = Bt('<div class="stack"></div>'),
-    h = vt([...new Set(d.protocols.map((e) => e.compoundId))]).filter((e) => HL(Ce(e)));
+    h = vt([...new Set(d.protocols.map((e) => e.compoundId))]).filter((e) => halfLifeOf(Ce(e)));
   if (h.length) {
     const e = Bt(
         '<div class="panel"><h2>Estimated in your system</h2><div class="pbody" id="lv"></div></div>',
@@ -1694,8 +1703,8 @@ function rn() {
       t = e.querySelector("#lv");
     for (const e of h) {
       const n = Ce(e),
-        a = Et(e, Date.now()),
-        s = Math.max(Tt(e), HL(n) ? 1e-9 : 0),
+        a = levelAt(e, Date.now()),
+        s = Math.max(recentPeak(e), halfLifeOf(n) ? 1e-9 : 0),
         o = Pt(e),
         i = o ? ae(o.date, te()) : null;
       t.appendChild(
@@ -1910,17 +1919,17 @@ function pn() {
   }
   function h() {
     const t = Ce(e.compoundId),
-      n = t ? HL(t) : 0,
+      n = t ? halfLifeOf(t) : 0,
       a = new Date(e.when).getTime() || Date.now();
     let s = "";
     if (n) {
       // b78: this shot is absorbed over its time to peak; earlier shots carry on along their own curves.
-      const P = TP(t, e.route),
+      const P = timeToPeak(t, e.route),
         ke = Math.LN2 / n,
-        kn = KA(ke, P.h),
+        kn = absorbRate(ke, P.h),
         D = e._doseMg || 0,
-        o = Et(e.compoundId, a) || 0,
-        L = (h) => (Et(e.compoundId, a + 36e5 * h) || 0) + D * AF(ke, kn, h);
+        o = levelAt(e.compoundId, a) || 0,
+        L = (h) => (levelAt(e.compoundId, a + 36e5 * h) || 0) + D * fractionInBody(ke, kn, h);
       let pk = o,
         ph = 0;
       for (let x = 0.25; x <= 168; x += x < 24 ? 0.25 : 1) {
@@ -1988,7 +1997,7 @@ function pn() {
     ),
     o.querySelector("#lg-p").addEventListener("change", (t) => {
       t.target.value
-        ? ((r.logDraft = un(t.target.value)), (r.logDraft.when = e.when), Ua())
+        ? ((r.logDraft = un(t.target.value)), (r.logDraft.when = e.when), redrawPage())
         : ((e.protocolId = ""), (e.pen = !1), c());
     }),
     o.querySelector("#lg-c").addEventListener("change", (t) => {
@@ -1997,14 +2006,14 @@ function pn() {
       ((e.batchId = n ? n.id : ""),
         e.protocolId ||
           ((e.route = cn(null, e.compoundId)), e.site && !z(e.site).includes(e.route) && (e.site = "")),
-        Ua());
+        redrawPage());
     }),
     o.querySelectorAll("#lg-mode button").forEach((t) =>
       t.addEventListener("click", () => {
         ((e.mode = t.dataset.mode),
           (e.unit = "amount" === e.mode ? "mg" : "units"),
           "volume" === e.mode && e._units && (e.dose = ye(e._units, 2)),
-          Ua());
+          redrawPage());
       }),
     ),
     o.querySelector("#lg-d").addEventListener("input", (t) => {
@@ -2025,7 +2034,7 @@ function pn() {
 }
 function hn() {
   const e = r.logDraft;
-  if (!e._doseMg && "amount" === e.mode && !be(e.dose)) return void Ft("Enter a dose first.");
+  if (!e._doseMg && "amount" === e.mode && !be(e.dose)) return void toast("Enter a dose first.");
   const t = new Date(e.when),
     n = e._conc ? (be(e.purge) / Oe) * e._conc : 0,
     a = {
@@ -2064,9 +2073,9 @@ function hn() {
     const s = It(e.batchId, a.doseMg + a.purgeMg, n, e._opens ? be(e.newBac) : 0);
     s && ((a.opened = s), n && (a.newVial = !0));
   }
-  (fn("shot"), s(), (r.logDraft = null), (r.tab = "today"), Ua());
+  (fn("shot"), s(), (r.logDraft = null), (r.tab = "today"), redrawPage());
   const i = a.opened ? qe(a.batchId) : null;
-  Ft(
+  toast(
     `Logged ${$e(a.doseMg, Ce(a.compoundId))} of ${Ce(a.compoundId).name}.${i ? ` New vial opened${be(i.bacMl) ? `, mixed with ${fe(be(i.bacMl), 2)} mL` : ""}.` : ""}`,
   );
 }
@@ -2426,8 +2435,8 @@ function Mn(e) {
               o();
               const D = e.querySelector("#p-chgdate").value,
                 S0 = t.startDate || te();
-              if (!D || D <= S0) return void Ft("Pick a date after the protocol's start date.");
-              if (t.cycling) return void Ft("Turn off On/off cycling first: rest days would shift the change date.");
+              if (!D || D <= S0) return void toast("Pick a date after the protocol's start date.");
+              if (t.cycling) return void toast("Turn off On/off cycling first: rest days would shift the change date.");
               const cur = {
                 dose: be(t.dose),
                 unit: t.unit,
@@ -2442,7 +2451,7 @@ function Mn(e) {
                 (e.querySelector("#p-chg").hidden = !0),
                 h(),
                 y(),
-                Ft("Set. Row 1 runs to " + de(ne(D, -1)) + ". Change row 2 to the new dose and schedule."));
+                toast("Set. Row 1 runs to " + de(ne(D, -1)) + ". Change row 2 to the new dose and schedule."));
             }),
             e.querySelectorAll(".tmpl").forEach((e) =>
               e.addEventListener("click", () => {
@@ -2679,29 +2688,29 @@ function Mn(e) {
     a.querySelector("#p-save").addEventListener("click", () => {
       o();
       const e = a.querySelector("#p-name").value.trim();
-      if (!e) return void Ft("Name the compound first.");
-      if ("weekdays" === t.sched && !(t.days || []).length) return void Ft("Pick at least one day.");
+      if (!e) return void toast("Name the compound first.");
+      if ("weekdays" === t.sched && !(t.days || []).length) return void toast("Pick at least one day.");
       if (t.split && t.splitFrom && t.splitFrom < (t.startDate || ""))
-        return void Ft("AM + PM can't start before the protocol does.");
+        return void toast("AM + PM can't start before the protocol does.");
       if (t.split && t.time && t.time2 && t.time2 <= t.time)
-        return void Ft("The PM time has to be later than the AM time.");
+        return void toast("The PM time has to be later than the AM time.");
       if (t.escalate) {
-        if (!(t.phases || []).length) return void Ft("Add at least one titration step.");
+        if (!(t.phases || []).length) return void toast("Add at least one titration step.");
         if (t.phases.some((e, i) => i < t.phases.length - 1 && !(be(e.dur) > 0)))
-          return (Ft("Give every phase except the last a length."), void h());
+          return (toast("Give every phase except the last a length."), void h());
         if (t.phases.some((e) => "weekdays" === e.ps && !(e.pdays || []).length))
-          return void Ft("Pick at least one day for each phase set to Certain days.");
-        if (t.phases.some((e) => !be(e.dose))) return (Ft("Give every titration step a dose."), void h());
+          return void toast("Pick at least one day for each phase set to Certain days.");
+        if (t.phases.some((e) => !be(e.dose))) return (toast("Give every titration step a dose."), void h());
       }
       if (t.blend) {
         if (((t.parts = (t.parts || []).filter((e) => e.name || be(e.dose))), t.parts.some((e) => !e.name)))
-          return void Ft("Name each peptide in the blend.");
+          return void toast("Name each peptide in the blend.");
         if (t.parts.some((e) => !be(e.dose)) || !be(t.dose))
-          return void Ft("Enter how much of each peptide goes into a shot.");
+          return void toast("Enter how much of each peptide goes into a shot.");
       }
       const n = a.querySelector("#p-water");
       if (!(t.pen || n.disabled || "" === n.value || be(n.value) > 0))
-        return void Ft("Bac water has to be more than 0 mL.");
+        return void toast("Bac water has to be more than 0 mL.");
       t.compoundId = Pe(e).id;
       let i = "";
       if (!t.pen && !n.disabled && be(n.value) > 0) {
@@ -2714,8 +2723,8 @@ function Mn(e) {
         s(),
         DX(),
         Rt(),
-        Ua(),
-        Ft((l >= 0 ? "Protocol saved." : "Protocol added.") + i));
+        redrawPage(),
+        toast((l >= 0 ? "Protocol saved." : "Protocol added.") + i));
     }));
   const f = a.querySelector("#p-del");
   f &&
@@ -2725,8 +2734,8 @@ function Mn(e) {
         s(),
         DX(),
         Rt(),
-        Ua(),
-        Ft("Protocol deleted."));
+        redrawPage(),
+        toast("Protocol deleted."));
     });
 }
 function xn() {
@@ -2866,9 +2875,9 @@ function An(e) {
     };
   (p.addEventListener("click", () => {
     const t = Math.round(be(m.value));
-    if (t < 1) return void Ft("No sealed vials left to open.");
+    if (t < 1) return void toast("No sealed vials left to open.");
     const n = be(i.querySelector("#b-mg").value);
-    if (!n) return void Ft("Enter the strength per vial first.");
+    if (!n) return void toast("Enter the strength per vial first.");
     ((m.value = t - 1),
       l.checked || ((l.checked = !0), (i.querySelector("#b-open").hidden = !1)),
       (i.querySelector("#b-openmg").value = n),
@@ -2950,10 +2959,10 @@ function An(e) {
     i.querySelector("#b-save").addEventListener("click", () => {
       f();
       const n = i.querySelector("#b-name").value.trim();
-      if (!n) return void Ft("Name the compound first.");
+      if (!n) return void toast("Name the compound first.");
       const a = Pe(n);
       if (((a.base = "iu" === t.vialUnit ? "iu" : a.base || "mg"), (t.compoundId = a.id), !t.vialMg))
-        return void Ft("Enter what the vial is labelled as.");
+        return void toast("Enter what the vial is labelled as.");
       const o = d.batches.findIndex((e) => e.id === t.id);
       o >= 0 ? (d.batches[o] = t) : d.batches.push(t);
       const u = c + (r ? 1 : 0),
@@ -2988,13 +2997,13 @@ function An(e) {
           status: "sealed",
         });
       }
-      (s(), Rt(), Ua(), Ft("Stock saved."));
+      (s(), Rt(), redrawPage(), toast("Stock saved."));
     }));
   const k = i.querySelector("#b-del");
   k &&
     k.addEventListener("click", () => {
       confirm("Delete this batch?") &&
-        ((d.batches = d.batches.filter((e) => e.id !== t.id)), s(), Rt(), Ua(), Ft("Batch deleted."));
+        ((d.batches = d.batches.filter((e) => e.id !== t.id)), s(), Rt(), redrawPage(), toast("Batch deleted."));
     });
 }
 function $n(e) {
@@ -3021,12 +3030,12 @@ function In(e) {
       (t.startMl = be(n.querySelector("#s-st").value) || t.ml),
       (t.vendor = n.querySelector("#s-v").value.trim()));
     const e = d.solutions.findIndex((e) => e.id === t.id);
-    (e >= 0 ? (d.solutions[e] = t) : d.solutions.push(t), s(), Rt(), Ua(), Ft("Solution saved."));
+    (e >= 0 ? (d.solutions[e] = t) : d.solutions.push(t), s(), Rt(), redrawPage(), toast("Solution saved."));
   });
   const a = n.querySelector("#s-del");
   a &&
     a.addEventListener("click", () => {
-      ((d.solutions = d.solutions.filter((e) => e.id !== t.id)), s(), Rt(), Ua());
+      ((d.solutions = d.solutions.filter((e) => e.id !== t.id)), s(), Rt(), redrawPage());
     });
 }
 function Cn(e) {
@@ -3050,12 +3059,12 @@ function Cn(e) {
       (t.per = n.querySelector("#u-p").value),
       (t.lowAt = be(n.querySelector("#u-l").value)));
     const e = d.supplies.findIndex((e) => e.id === t.id);
-    (e >= 0 ? (d.supplies[e] = t) : d.supplies.push(t), s(), Rt(), Ua(), Ft("Supply saved."));
+    (e >= 0 ? (d.supplies[e] = t) : d.supplies.push(t), s(), Rt(), redrawPage(), toast("Supply saved."));
   });
   const a = n.querySelector("#u-del");
   a &&
     a.addEventListener("click", () => {
-      ((d.supplies = d.supplies.filter((e) => e.id !== t.id)), s(), Rt(), Ua());
+      ((d.supplies = d.supplies.filter((e) => e.id !== t.id)), s(), Rt(), redrawPage());
     });
 }
 function Ln() {
@@ -3071,7 +3080,7 @@ function Ln() {
   return (
     t.querySelectorAll("button").forEach((e) =>
       e.addEventListener("click", () => {
-        ((r.histView = e.dataset.v), Ua());
+        ((r.histView = e.dataset.v), redrawPage());
       }),
     ),
     e.appendChild(t),
@@ -3100,10 +3109,10 @@ function qn() {
       `<div class="panel" style="overflow:hidden">\n    <h2><button class="btn ghost sm" id="pm">‹</button>\n      <b style="font-weight:600;color:var(--ink)">${e.toLocaleDateString(void 0, { month: "long", year: "numeric" })}</b>\n      <button class="btn ghost sm" id="nm">›</button></h2>\n    <div class="cal" id="cal"></div>\n    <div class="legend">\n      <span><i class="cdot" data-s="taken"></i>Taken</span>\n      <span><i class="cdot"></i>Scheduled</span>\n      <span><i class="cdot" data-s="missed"></i>Missed</span></div></div>`,
     );
   (i.querySelector("#pm").addEventListener("click", () => {
-    ((r.calMonth = _(new Date(t, n - 1, 1)).slice(0, 7)), Ua());
+    ((r.calMonth = _(new Date(t, n - 1, 1)).slice(0, 7)), redrawPage());
   }),
     i.querySelector("#nm").addEventListener("click", () => {
-      ((r.calMonth = _(new Date(t, n + 1, 1)).slice(0, 7)), Ua());
+      ((r.calMonth = _(new Date(t, n + 1, 1)).slice(0, 7)), redrawPage());
     }));
   const l = i.querySelector("#cal");
   ge.forEach((e) => l.appendChild(Bt(`<div class="cal-h">${me[e][0]}</div>`)));
@@ -3460,7 +3469,7 @@ const LyPanel = COMMUNITY ? null : function (box, redraw) {
       side = k0.startsWith("s:"),
       k = side ? k0.slice(2) : k0,
       it = "qr" === k ? L.qr : side ? L.sd[k] : L.m[k];
-    if ("reset" === a) return ((d.settings.labelLayout = null), s(), redraw(), draw(), Ft("Layout reset."));
+    if ("reset" === a) return ((d.settings.labelLayout = null), s(), redraw(), draw(), toast("Layout reset."));
     if ("up" === a || "dn" === a) it.sc = Math.max(50, Math.min(160, it.sc + ("up" === a ? 10 : -10)));
     else if ("bold" === a) it.b = !it.b;
     else if ("two" === a) it.two = !it.two;
@@ -3504,7 +3513,7 @@ function Bn() {
       e
     );
   e.querySelector("#lb-pick").addEventListener("change", (e) => {
-    ((r.labelId = e.target.value), Ua());
+    ((r.labelId = e.target.value), redrawPage());
   });
   const n = qe(r.labelId),
     base = Pn(n),
@@ -3570,7 +3579,7 @@ function Bn() {
         } catch (x) {
           (el.select(), document.execCommand("copy"));
         }
-        Ft("Copied.");
+        toast("Copied.");
       }),
     ),
     l.querySelectorAll("#lb-stock button").forEach((e) =>
@@ -3606,7 +3615,7 @@ function Bn() {
       return `label-${(e ? e.name : "vial").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.png`;
     };
   l.querySelector("#lb-png").addEventListener("click", () => {
-    (Ea(v(), g()), Ft("Label downloaded."));
+    (Ea(v(), g()), toast("Label downloaded."));
   });
   const b = l.querySelector("#lb-share");
   try {
@@ -3620,7 +3629,7 @@ function Bn() {
         try {
           await navigator.share({ files: [new File([g()], v(), { type: "image/png" })] });
         } catch (e) {
-          e && "AbortError" !== e.name && Ft("Could not open the share sheet.");
+          e && "AbortError" !== e.name && toast("Could not open the share sheet.");
         }
       }));
   } catch (e) {}
@@ -3633,7 +3642,7 @@ function Bn() {
         ? (t.document.write(`<img src="${e.toDataURL()}" style="width:40mm;height:20mm">`),
           t.document.close(),
           setTimeout(() => t.print(), 300))
-        : Ft("Your browser blocked the print window.");
+        : toast("Your browser blocked the print window.");
     }),
     c.querySelector("#lb-savebatch").addEventListener("click", () => {
       ((n.label = {}),
@@ -3642,7 +3651,7 @@ function Bn() {
         }),
         delete r.lbDraft[n.id],
         s(),
-        Ft("Label saved to this vial."));
+        toast("Label saved to this vial."));
     }),
     c.querySelector("#lb-savedef").addEventListener("click", () => {
       ((d.settings.labelDefaults = {
@@ -3653,10 +3662,10 @@ function Bn() {
         made: a.made,
       }),
         s(),
-        Ft("Wording saved as your default."));
+        toast("Wording saved as your default."));
     }),
     c.querySelector("#lb-reset").addEventListener("click", () => {
-      (delete n.label, delete r.lbDraft[n.id], s(), Ua(), Ft("Reset to the vial’s own values."));
+      (delete n.label, delete r.lbDraft[n.id], s(), redrawPage(), toast("Reset to the vial’s own values."));
     }),
     document.fonts && document.fonts.ready && document.fonts.ready.then(m),
     setTimeout(m, 30),
@@ -3809,7 +3818,7 @@ function Nn() {
     e
   );
 }
-const Fn = [
+const SYNC_LISTS = [
     "compounds",
     "protocols",
     "batches",
@@ -3823,63 +3832,63 @@ const Fn = [
     "insights",
     "insGuides",
   ],
-  Vn =
+  OWN_SYNC_SITE =
     /^my\.korahpeptides\.com$/i.test(location.hostname) || /^rickspeptidetracker\./i.test(location.hostname),
-  Rn =
+  COMMUNITY_FIREBASE =
     'const firebaseConfig = {\n  apiKey: "AIzaSyCII6ZuPDIFfanFXNqX_QaKG7W5_B7-pYg",\n  authDomain: "korah-peptides.firebaseapp.com",\n  projectId: "korah-peptides",\n  storageBucket: "korah-peptides.firebasestorage.app",\n  messagingSenderId: "28465208707",\n  appId: "1:28465208707:web:09df25830f07778cc06ab6"\n};',
-  Wn = !Vn && !!Rn.trim(),
-  jn = Vn || Wn,
+  SHARED_SYNC = !OWN_SYNC_SITE && !!COMMUNITY_FIREBASE.trim(),
+  SYNC_HERE = OWN_SYNC_SITE || SHARED_SYNC,
   Gn = 8,
-  Kn = () => (Wn ? Rn : (d.settings && d.settings.sync && d.settings.sync.config) || ""),
-  Jn = ["12.18.0", "11.10.0", "10.14.1"];
-let zn = null,
-  Yn = !1,
-  Zn = null,
-  Xn = {},
-  XS = {}, // b77: last-seen value of each setting (kept apart from Xn, whose unknown keys count as deletions)
-  _n = { status: "off", msg: "", at: 0 };
-function ea(e) {
+  syncConfigText = () => (SHARED_SYNC ? COMMUNITY_FIREBASE : (d.settings && d.settings.sync && d.settings.sync.config) || ""),
+  FIREBASE_VERSIONS = ["12.18.0", "11.10.0", "10.14.1"];
+let fb = null,
+  syncing = !1,
+  syncTimer = null,
+  seenItems = {},
+  seenSettings = {}, // b77: last-seen value of each setting (kept apart from seenItems, whose unknown keys count as deletions)
+  syncState = { status: "off", msg: "", at: 0 };
+function itemText(e) {
   const t = {};
   for (const n in e) "_m" !== n && "_mk" !== n && (t[n] = e[n]);
   return JSON.stringify(t);
 }
-function ta() {
+function stampChanges() {
   const e = Date.now(),
     t = {};
-  for (const n of Fn)
+  for (const n of SYNC_LISTS)
     for (const a of d[n] || []) {
       if (!a || !a.id) continue;
       t[a.id] = 1;
-      const n = ea(a);
-      Xn[a.id] !== n && ((a._m = e), (Xn[a.id] = n));
+      const n = itemText(a);
+      seenItems[a.id] !== n && ((a._m = e), (seenItems[a.id] = n));
     }
   d._del = d._del || {};
   // b77: "__settings" is not an item; before b77 it was marked deleted and re-stamped on every save.
-  for (const n in Xn) "__settings" === n || t[n] || d._del[n] || ((d._del[n] = e), delete Xn[n]);
-  const n = ea(d.settings || {});
-  Xn.__settings !== n && ((d.settings._m = e), (Xn.__settings = n));
+  for (const n in seenItems) "__settings" === n || t[n] || d._del[n] || ((d._del[n] = e), delete seenItems[n]);
+  const n = itemText(d.settings || {});
+  seenItems.__settings !== n && ((d.settings._m = e), (seenItems.__settings = n));
   // b77: each setting gets its own change time, so two devices changing different settings both keep theirs.
   const st = d.settings || {};
   st._mk = st._mk || {};
   for (const k in st) {
     if ("_m" === k || "_mk" === k) continue;
     const v = JSON.stringify(st[k]);
-    XS[k] !== v && ((st._mk[k] = e), (XS[k] = v));
+    seenSettings[k] !== v && ((st._mk[k] = e), (seenSettings[k] = v));
   }
 }
-function na() {
-  Xn = {};
-  for (const e of Fn) for (const t of d[e] || []) t && t.id && (Xn[t.id] = ea(t));
-  Xn.__settings = ea(d.settings || {});
-  XS = {};
-  for (const k in d.settings || {}) "_m" !== k && "_mk" !== k && (XS[k] = JSON.stringify(d.settings[k]));
+function rememberSeen() {
+  seenItems = {};
+  for (const e of SYNC_LISTS) for (const t of d[e] || []) t && t.id && (seenItems[t.id] = itemText(t));
+  seenItems.__settings = itemText(d.settings || {});
+  seenSettings = {};
+  for (const k in d.settings || {}) "_m" !== k && "_mk" !== k && (seenSettings[k] = JSON.stringify(d.settings[k]));
 }
-function aa(e, t) {
+function mergeData(e, t) {
   const n = Object.assign({}, t._del || {});
   for (const t in e._del || {}) n[t] = Math.max(n[t] || 0, e._del[t]);
   const a = l();
   a._del = n;
-  for (const s of Fn) {
+  for (const s of SYNC_LISTS) {
     const o = {};
     for (const e of t[s] || []) e && e.id && (o[e.id] = e);
     for (const t of e[s] || []) {
@@ -3891,12 +3900,17 @@ function aa(e, t) {
       .map((e) => o[e])
       .filter((e) => !(n[e.id] && n[e.id] > (e._m || 0)));
   }
-  a.settings = SM(e.settings || {}, t.settings || {});
+  a.settings = mergeSettings(e.settings || {}, t.settings || {});
+  // b79: deletion markers are kept 90 days, long enough for every device to have synced since, then dropped
+  // (a device that has not synced for 90 days could bring a deleted item back). "__" keys were never items.
+  const cut = Date.now() - DEL_KEEP_DAYS * 864e5;
+  for (const k in a._del) (k.startsWith("__") || a._del[k] < cut) && delete a._del[k];
   return a;
 }
+const DEL_KEEP_DAYS = 90;
 // b77: merge settings one by one. Each side's change time per setting is in _mk; a copy from before b77
 // has none, so its whole-settings time (_m) stands in. Ties keep this device's value.
-function SM(mine, theirs) {
+function mergeSettings(mine, theirs) {
   const myAll = mine._m || 0,
     theirAll = theirs._m || 0,
     myKeys = mine._mk || {},
@@ -3916,18 +3930,18 @@ function SM(mine, theirs) {
   out._mk = times;
   return out;
 }
-const sa = (e) => {
+const toBase64 = (e) => {
     let t = "";
     for (let n = 0; n < e.length; n += 32768) t += String.fromCharCode.apply(null, e.subarray(n, n + 32768));
     return btoa(t);
   },
-  oa = (e) => {
+  fromBase64 = (e) => {
     const t = atob(e),
       n = new Uint8Array(t.length);
     for (let a = 0; a < t.length; a++) n[a] = t.charCodeAt(a);
     return n;
   };
-async function ia(e, t) {
+async function keyFromPassphrase(e, t) {
   const n = await crypto.subtle.importKey("raw", new TextEncoder().encode(e), "PBKDF2", !1, ["deriveKey"]);
   return crypto.subtle.deriveKey(
     { name: "PBKDF2", salt: t, iterations: 25e4, hash: "SHA-256" },
@@ -3939,45 +3953,45 @@ async function ia(e, t) {
 }
 // b77: the synced copy is gzip-compressed before it is encrypted (z: 1). Text like this shrinks several
 // times over, which keeps it well under Firestore's 1 MB limit for one record.
-async function ZP(e) {
+async function gzip(e) {
   if ("undefined" == typeof CompressionStream) return null;
   const t = new Blob([e]).stream().pipeThrough(new CompressionStream("gzip"));
   return new Uint8Array(await new Response(t).arrayBuffer());
 }
-async function ZU(e) {
+async function gunzip(e) {
   const t = new Blob([e]).stream().pipeThrough(new DecompressionStream("gzip"));
   return await new Response(t).text();
 }
-async function la(e, t) {
+async function packRecord(e, t) {
   const j = JSON.stringify(e),
-    z = await ZP(j);
-  if (!t) return z ? { enc: 0, z: 1, body: sa(z) } : { enc: 0, body: j };
+    z = await gzip(j);
+  if (!t) return z ? { enc: 0, z: 1, body: toBase64(z) } : { enc: 0, body: j };
   const n = crypto.getRandomValues(new Uint8Array(16)),
     a = crypto.getRandomValues(new Uint8Array(12)),
-    s = await ia(t, n),
+    s = await keyFromPassphrase(t, n),
     o = await crypto.subtle.encrypt({ name: "AES-GCM", iv: a }, s, z || new TextEncoder().encode(j));
-  return Object.assign({ enc: 1, salt: sa(n), iv: sa(a), body: sa(new Uint8Array(o)) }, z ? { z: 1 } : {});
+  return Object.assign({ enc: 1, salt: toBase64(n), iv: toBase64(a), body: toBase64(new Uint8Array(o)) }, z ? { z: 1 } : {});
 }
-async function da(e, t) {
-  if (!e.enc) return JSON.parse(e.z ? await ZU(oa(e.body)) : e.body);
+async function unpackRecord(e, t) {
+  if (!e.enc) return JSON.parse(e.z ? await gunzip(fromBase64(e.body)) : e.body);
   if (!t) throw new Error("This log is encrypted. Enter your passphrase.");
-  const n = await ia(t, oa(e.salt));
+  const n = await keyFromPassphrase(t, fromBase64(e.salt));
   let a;
   try {
-    a = await crypto.subtle.decrypt({ name: "AES-GCM", iv: oa(e.iv) }, n, oa(e.body));
+    a = await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromBase64(e.iv) }, n, fromBase64(e.body));
   } catch (e) {
     throw new Error("That passphrase does not open this log.");
   }
-  return JSON.parse(e.z ? await ZU(new Uint8Array(a)) : new TextDecoder().decode(a));
+  return JSON.parse(e.z ? await gunzip(new Uint8Array(a)) : new TextDecoder().decode(a));
 }
 // b77: content of the synced lists and settings, without change times, to tell whether a sync changed anything.
-function SG(e) {
+function contentSignature(e) {
   const t = [];
-  for (const n of Fn) t.push((e[n] || []).map(ea).sort().join("\u0001"));
-  return (t.push(ea(e.settings || {}), JSON.stringify(e._del || {})), t.join("\u0002"));
+  for (const n of SYNC_LISTS) t.push((e[n] || []).map(itemText).sort().join("\u0001"));
+  return (t.push(itemText(e.settings || {}), JSON.stringify(e._del || {})), t.join("\u0002"));
 }
 const SYNC_MAX = 1e6;
-function ra(e) {
+function parseFirebaseConfig(e) {
   const t = {};
   for (const n of ["apiKey", "authDomain", "projectId", "storageBucket", "messagingSenderId", "appId"]) {
     const a = e.match(new RegExp(n + "\\s*:\\s*[\"']([^\"']+)[\"']"));
@@ -3994,42 +4008,42 @@ function ra(e) {
   }
   return (t.authDomain || (t.authDomain = t.projectId + ".firebaseapp.com"), t);
 }
-async function ca() {
-  if (zn) return zn;
+async function loadFirebase() {
+  if (fb) return fb;
   let e;
-  for (const t of Jn)
+  for (const t of FIREBASE_VERSIONS)
     try {
       const [e, n, a] = await Promise.all([
         import(`https://www.gstatic.com/firebasejs/${t}/firebase-app.js`),
         import(`https://www.gstatic.com/firebasejs/${t}/firebase-auth.js`),
         import(`https://www.gstatic.com/firebasejs/${t}/firebase-firestore.js`),
       ]);
-      return ((zn = { v: t, app: e, auth: n, fs: a }), zn);
+      return ((fb = { v: t, app: e, auth: n, fs: a }), fb);
     } catch (t) {
       e = t;
     }
   throw new Error("Could not load Firebase. Check the connection. (" + ((e && e.message) || "") + ")");
 }
 // b77: true while Firebase may still be restoring a saved session (no password is kept any more).
-function ua() {
-  return !!(zn && zn.authI && !zn._ready);
+function sessionRestoring() {
+  return !!(fb && fb.authI && !fb._ready);
 }
-function pa() {
+function hasPassphrase() {
   try {
     return !!localStorage.getItem("protocol:pass");
   } catch (e) {
     return !1;
   }
 }
-function ha() {
+function syncSettings() {
   return d.settings.sync || (d.settings.sync = { enabled: !1, config: "", email: "", auto: !0 });
 }
-async function ma() {
-  const e = Kn();
+async function firebaseReady() {
+  const e = syncConfigText();
   if (!e) throw new Error("Paste your Firebase config first.");
-  const t = await ca();
+  const t = await loadFirebase();
   if (!t.instance) {
-    const n = ra(e);
+    const n = parseFirebaseConfig(e);
     ((t.instance = t.app.initializeApp(n)),
       (t.authI = t.auth.getAuth(t.instance)),
       (t.db = t.fs.getFirestore(t.instance)));
@@ -4044,9 +4058,9 @@ async function ma() {
   }
   return t;
 }
-async function ga(e, t, n) {
-  const a = await ma(),
-    l = ha();
+async function syncSignIn(e, t, n) {
+  const a = await firebaseReady(),
+    l = syncSettings();
   // b77: "Stay signed in" is handled by Firebase's own session storage; the password is never saved.
   if (!1 === l.remember && a.auth.browserSessionPersistence)
     try {
@@ -4056,10 +4070,10 @@ async function ga(e, t, n) {
     i = await o(a.authI, e, t);
   return ((l.email = e), s(), i.user);
 }
-async function va() {
-  const e = ha();
-  if (!e.enabled || !Kn() || !e.email) return null;
-  const t = await ma();
+async function restoreSession() {
+  const e = syncSettings();
+  if (!e.enabled || !syncConfigText() || !e.email) return null;
+  const t = await firebaseReady();
   // b77: wait for Firebase to restore the saved session instead of signing in again with a stored password.
   if (!t._ready) {
     try {
@@ -4073,82 +4087,94 @@ async function va() {
   }
   return t.authI.currentUser || null;
 }
-async function ba() {
-  (zn && zn.authI && (await zn.auth.signOut(zn.authI)), (_n = { status: "off", msg: "", at: 0 }), Ua());
+async function syncSignOut() {
+  (fb && fb.authI && (await fb.auth.signOut(fb.authI)), (syncState = { status: "off", msg: "", at: 0 }), redrawPage());
 }
-function ya() {
-  return zn && zn.authI ? zn.authI.currentUser : null;
+function syncUser() {
+  return fb && fb.authI ? fb.authI.currentUser : null;
 }
-async function fa(e) {
-  if (!jn) return;
-  if (!ha().enabled || Yn) return;
+async function syncNow(e) {
+  if (!SYNC_HERE) return;
+  if (!syncSettings().enabled || syncing) return;
   const n = localStorage.getItem("protocol:pass") || "";
   try {
-    ((Yn = !0), (_n = { status: "working", msg: "Syncing…", at: _n.at }), e || ka());
-    const a = await ma(),
-      s = ya();
+    ((syncing = !0), (syncState = { status: "working", msg: "Syncing…", at: syncState.at }), e || showSyncStatus());
+    const a = await firebaseReady(),
+      s = syncUser();
     if (!s) throw new Error("Sign in first.");
     if (n.length < 8) throw new Error("Set a passphrase of at least 8 characters in Settings → Sync first.");
-    const o = a.fs.doc(a.db, "logs", s.uid),
-      i = await a.fs.getDoc(o);
-    ta();
-    let l = d;
-    const g = SG(d);
-    if (i.exists()) {
-      const e = await da(i.data(), n);
-      l = aa(d, e);
+    const o = a.fs.doc(a.db, "logs", s.uid);
+    stampChanges();
+    const base = d,
+      g = contentSignature(d),
+      // read the cloud copy, merge, write it back. b79: inside a Firestore transaction, so if another device
+      // writes between the read and the write, Firestore runs this again on the newer copy instead of
+      // letting one device overwrite the other.
+      job = async (get, put) => {
+        const i = await get();
+        let l = base;
+        i.exists() && (l = mergeData(base, await unpackRecord(i.data(), n)));
+        const r = await packRecord(l, n),
+          sz = (r.body || "").length + 400;
+        if (sz > SYNC_MAX)
+          throw new Error(
+            "Your synced log is " +
+              Math.round(sz / 1024) +
+              " KB, over the 1 MB that one sync record can hold. Delete old Insights reports, then sync again.",
+          );
+        return ((r.updatedAt = Date.now()), put(r), { l, sz });
+      };
+    let res;
+    if (a.fs.runTransaction)
+      res = await a.fs.runTransaction(a.db, (tx) => job(() => tx.get(o), (r) => tx.set(o, r)));
+    else {
+      let w;
+      ((res = await job(() => a.fs.getDoc(o), (r) => (w = r))), await a.fs.setDoc(o, w));
     }
-    ((d = l), na(), await t.set(JSON.stringify(d)));
-    const r = await la(d, n),
-      sz = (r.body || "").length + 400;
-    if (sz > SYNC_MAX)
-      throw new Error(
-        "Your synced log is " +
-          Math.round(sz / 1024) +
-          " KB, over the 1 MB that one sync record can hold. Delete old Insights reports, then sync again.",
-      );
-    ((r.updatedAt = Date.now()),
-      await a.fs.setDoc(o, r),
-      (_n = { status: "ok", msg: "", at: Date.now(), kb: Math.round(sz / 1024) }),
-      e || Ft("Synced."),
-      SG(d) !== g ? Ua(1) : ka());
+    // anything saved on this device while the sync was running is merged in, not lost
+    (stampChanges(), (d = mergeData(d, res.l)), rememberSeen(), await t.set(JSON.stringify(d)));
+    const behind = contentSignature(d) !== contentSignature(res.l);
+    ((syncState = { status: "ok", msg: "", at: Date.now(), kb: Math.round(res.sz / 1024) }),
+      e || toast("Synced."),
+      contentSignature(d) !== g ? redrawPage(1) : showSyncStatus(),
+      behind && syncSoon());
   } catch (t) {
-    ((_n = { status: "error", msg: t.message || String(t), at: _n.at }),
-      e || Ft(t.message || "Sync failed."),
-      ka());
+    ((syncState = { status: "error", msg: t.message || String(t), at: syncState.at }),
+      e || toast(t.message || "Sync failed."),
+      showSyncStatus());
   } finally {
-    Yn = !1;
+    syncing = !1;
   }
 }
-function wa() {
-  if (!jn) return;
+function syncSoon() {
+  if (!SYNC_HERE) return;
   const e = d.settings && d.settings.sync;
-  e && e.enabled && e.auto && (clearTimeout(Zn), (Zn = setTimeout(() => fa(!0), 4e3)));
+  e && e.enabled && e.auto && (clearTimeout(syncTimer), (syncTimer = setTimeout(() => syncNow(!0), 4e3)));
 }
-function ka() {
+function showSyncStatus() {
   const e = document.querySelector("#sync-status");
   if (!e) return;
-  const t = ya();
+  const t = syncUser();
   e.innerHTML =
-    "working" === _n.status
+    "working" === syncState.status
       ? '<span class="pill">Syncing…</span>'
-      : !t && ha().enabled && ha().email && ua() && "error" !== _n.status
+      : !t && syncSettings().enabled && syncSettings().email && sessionRestoring() && "error" !== syncState.status
         ? '<span class="pill">Reconnecting…</span>'
-        : "error" === _n.status
-          ? `<span class="pill late">Problem</span> <span class="tiny" style="color:var(--alert)">${Ht(_n.msg)}</span>`
+        : "error" === syncState.status
+          ? `<span class="pill late">Problem</span> <span class="tiny" style="color:var(--alert)">${Ht(syncState.msg)}</span>`
           : t
-            ? `<span class="pill done">Signed in as ${Ht(t.email)}</span>${_n.at ? ` <span class="tiny muted">last synced ${Ht(re(new Date(_n.at)))}${_n.kb ? ` · ${_n.kb} KB of 1,000 KB` : ""}</span>` : ""}`
+            ? `<span class="pill done">Signed in as ${Ht(t.email)}</span>${syncState.at ? ` <span class="tiny muted">last synced ${Ht(re(new Date(syncState.at)))}${syncState.kb ? ` · ${syncState.kb} KB of 1,000 KB` : ""}</span>` : ""}`
             : '<span class="pill">Not signed in</span>';
 }
 function Sa() {
-  const e = ha(),
+  const e = syncSettings(),
     n = "undefined" != typeof localStorage && localStorage.getItem("protocol:pass"),
     a = Bt(
-      `<div class="panel"><h2>Sync between devices<span id="sync-status"></span></h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 12px">${Wn ? "Optional. Off by default — everything works without it. Turn it on to keep your phone and your computer level: sign in with the same email, password and passphrase on both. Your log is scrambled in this browser with your passphrase before it uploads, so what is stored is unreadable to anyone else, including whoever runs this site. Logging on one device does not wipe the other." : "Optional. Off by default — everything works without it. When it is on, your log is merged\n      through your own Firebase project so the phone and the PC stay level. Records are matched by id and the newer edit wins, so logging\n      on one device does not wipe the other."}</p>\n    <label class="check"><input type="checkbox" id="sy-on" ${e.enabled ? "checked" : ""}><span>Turn sync on</span></label>\n    <div id="sy-body" ${e.enabled ? "" : "hidden"}>\n      ${Wn ? "" : `<div class="field"><label for="sy-cfg">Firebase config</label>\n        <textarea id="sy-cfg" style="min-height:110px;font-family:var(--mono);font-size:12px" placeholder="Paste the whole firebaseConfig block from the Firebase console">${Ht(e.config)}</textarea>\n        <span class="hint">Project settings › Your apps › the web app › Config. Paste it all; the fields are picked out for you.</span></div>`}\n      <div class="fgrid">\n        <div class="field"><label for="sy-em">Email</label><input id="sy-em" type="email" autocomplete="username" value="${Ht(e.email)}"></div>\n        <div class="field"><label for="sy-pw">Password</label>\n          <input id="sy-pw" type="password" autocomplete="current-password" placeholder="${ua() ? "•••••• saved on this device" : "At least 6 characters"}"></div>\n      </div>\n      <label class="check"><input type="checkbox" id="sy-rem" ${!1 !== e.remember ? "checked" : ""}>\n        <span>Stay signed in on this device</span></label>\n      <div class="field"><label for="sy-ph">Passphrase (encryption, required)</label>\n        <input id="sy-ph" type="password" autocomplete="off" placeholder="${n ? "•••••• already set on this device" : "At least 8 characters"}">\n        <span class="hint">${Wn ? "Scrambles the log in your browser before it uploads. Use the same passphrase on both devices. <b>There is no way to recover it.</b> If you lose it, the only way back is to start the cloud copy over from a device that still has your data. Write it down somewhere real." : "Scrambles the log in your browser before it uploads, so the database holds text nobody can read — not Google, not me.\n          Use the same passphrase on both devices. <b>There is no way to recover it.</b> Lose it and the synced copy is gone for good, so write it down somewhere real."}</span></div>\n      ${jn ? '<div class="field"><label for="sy-ph2">Repeat passphrase (new accounts only)</label>\n        <input id="sy-ph2" type="password" autocomplete="off"></div>' : ""}\n      <div class="row" style="margin-bottom:10px">\n        <button class="btn" id="sy-in">Sign in</button>\n        <button class="btn ghost" id="sy-new">Create account</button>\n        <button class="btn ghost" id="sy-go">Sync now</button>\n        <button class="btn ghost" id="sy-out">Sign out</button>\n        <button class="btn ghost" id="sy-fp">Forgot password</button></div>\n      <label class="check" style="margin:0"><input type="checkbox" id="sy-auto" ${!1 !== e.auto ? "checked" : ""}><span>Sync automatically a few seconds after a change</span></label>\n      ${jn ? '<p class="tiny muted" style="margin:12px 0 0">Lost your passphrase? Type a new one above, then\n        <button class="btn ghost sm" id="sy-reset">Replace the cloud copy with this device</button>\n        The old cloud copy is gone for good; this device’s data becomes the new one.</p>' : ""}\n    </div></div></div>`,
+      `<div class="panel"><h2>Sync between devices<span id="sync-status"></span></h2><div class="pbody">${appKindLine(`Its sign-in accounts are separate from the ${APP_OTHER} app's: an email and password made in one does not work in the other.`)}\n    <p class="tiny muted" style="margin:0 0 12px">${SHARED_SYNC ? "Optional. Off by default — everything works without it. Turn it on to keep your phone and your computer level: sign in with the same email, password and passphrase on both. Your log is scrambled in this browser with your passphrase before it uploads, so what is stored is unreadable to anyone else, including whoever runs this site. Logging on one device does not wipe the other." : "Optional. Off by default — everything works without it. When it is on, your log is merged\n      through your own Firebase project so the phone and the PC stay level. Records are matched by id and the newer edit wins, so logging\n      on one device does not wipe the other."}</p>\n    <label class="check"><input type="checkbox" id="sy-on" ${e.enabled ? "checked" : ""}><span>Turn sync on</span></label>\n    <div id="sy-body" ${e.enabled ? "" : "hidden"}>\n      ${SHARED_SYNC ? "" : `<div class="field"><label for="sy-cfg">Firebase config</label>\n        <textarea id="sy-cfg" style="min-height:110px;font-family:var(--mono);font-size:12px" placeholder="Paste the whole firebaseConfig block from the Firebase console">${Ht(e.config)}</textarea>\n        <span class="hint">Project settings › Your apps › the web app › Config. Paste it all; the fields are picked out for you.</span></div>`}\n      <div class="fgrid">\n        <div class="field"><label for="sy-em">Email</label><input id="sy-em" type="email" autocomplete="username" value="${Ht(e.email)}"></div>\n        <div class="field"><label for="sy-pw">Password</label>\n          <input id="sy-pw" type="password" autocomplete="current-password" placeholder="${sessionRestoring() ? "•••••• saved on this device" : "At least 6 characters"}"></div>\n      </div>\n      <label class="check"><input type="checkbox" id="sy-rem" ${!1 !== e.remember ? "checked" : ""}>\n        <span>Stay signed in on this device</span></label>\n      <div class="field"><label for="sy-ph">Passphrase (encryption, required)</label>\n        <input id="sy-ph" type="password" autocomplete="off" placeholder="${n ? "•••••• already set on this device" : "At least 8 characters"}">\n        <span class="hint">${SHARED_SYNC ? "Scrambles the log in your browser before it uploads. Use the same passphrase on both devices. <b>There is no way to recover it.</b> If you lose it, the only way back is to start the cloud copy over from a device that still has your data. Write it down somewhere real." : "Scrambles the log in your browser before it uploads, so the database holds text nobody can read — not Google, not me.\n          Use the same passphrase on both devices. <b>There is no way to recover it.</b> Lose it and the synced copy is gone for good, so write it down somewhere real."}</span></div>\n      ${SYNC_HERE ? '<div class="field"><label for="sy-ph2">Repeat passphrase (new accounts only)</label>\n        <input id="sy-ph2" type="password" autocomplete="off"></div>' : ""}\n      <div class="row" style="margin-bottom:10px">\n        <button class="btn" id="sy-in">Sign in</button>\n        <button class="btn ghost" id="sy-new">Create account</button>\n        <button class="btn ghost" id="sy-go">Sync now</button>\n        <button class="btn ghost" id="sy-out">Sign out</button>\n        <button class="btn ghost" id="sy-fp">Forgot password</button></div>\n      <label class="check" style="margin:0"><input type="checkbox" id="sy-auto" ${!1 !== e.auto ? "checked" : ""}><span>Sync automatically a few seconds after a change</span></label>\n      ${SYNC_HERE ? '<p class="tiny muted" style="margin:12px 0 0">Lost your passphrase? Type a new one above, then\n        <button class="btn ghost sm" id="sy-reset">Replace the cloud copy with this device</button>\n        The old cloud copy is gone for good; this device’s data becomes the new one.</p>' : ""}\n    </div></div></div>`,
     ),
     o = a.querySelector("#sy-on");
   o.addEventListener("change", () => {
-    ((e.enabled = o.checked), (a.querySelector("#sy-body").hidden = !o.checked), s(), ka());
+    ((e.enabled = o.checked), (a.querySelector("#sy-body").hidden = !o.checked), s(), showSyncStatus());
   });
   const i = a.querySelector("#sy-cfg");
   (i &&
@@ -4171,85 +4197,85 @@ function Sa() {
       pw: a.querySelector("#sy-pw").value,
       ph: a.querySelector("#sy-ph").value,
     };
-    if (!s && pa())
+    if (!s && hasPassphrase())
       try {
         s = localStorage.getItem("protocol:pass");
       } catch (e) {}
     if (t && n) {
       // b78: a passphrase is required on both builds (before b78 the personal build allowed none).
       {
-        if (!s) return void Ft("Choose a passphrase of at least 8 characters.");
-        if (s.length < 8) return void Ft("The passphrase needs at least 8 characters.");
+        if (!s) return void toast("Choose a passphrase of at least 8 characters.");
+        if (s.length < 8) return void toast("The passphrase needs at least 8 characters.");
         const t = a.querySelector("#sy-ph").value,
           n = a.querySelector("#sy-ph2").value;
-        if (e && t !== n) return void Ft("The two passphrases do not match.");
+        if (e && t !== n) return void toast("The two passphrases do not match.");
       }
       try {
-        ((_n = { status: "working", msg: "", at: _n.at }),
-          ka(),
+        ((syncState = { status: "working", msg: "", at: syncState.at }),
+          showSyncStatus(),
           localStorage.setItem("protocol:pass", s || ""),
-          await ga(t, n, e),
-          await fa());
+          await syncSignIn(t, n, e),
+          await syncNow());
       } catch (e) {
         let t = e.message || String(e);
         (/email-already-in-use/.test(t)
           ? (t = "That email already has an account — use Sign in instead.")
           : /invalid-credential|wrong-password|user-not-found/.test(t)
-            ? (t = "Email or password not recognised.")
+            ? (t = `Email or password not recognised in the ${APP_KIND} app. Its accounts are separate from the ${APP_OTHER} app's, so check you are in the right one.`)
             : /weak-password/.test(t)
               ? (t = "Password needs to be at least 6 characters.")
               : /operation-not-allowed/.test(t)
-                ? (t = Wn
+                ? (t = SHARED_SYNC
                     ? "Sync is not available right now. Try again later."
                     : "Turn on Email/Password in Firebase under Authentication › Sign-in method.")
                 : /unauthorized-domain|auth\/invalid-api-key/.test(t)
-                  ? (t = Wn
+                  ? (t = SHARED_SYNC
                       ? "Sync is not set up for this address yet."
                       : "Add this site’s address to Authorized domains in Firebase Authentication settings.")
                   : /permission-denied|Missing or insufficient/.test(t) &&
-                    (t = Wn
+                    (t = SHARED_SYNC
                       ? "The sync service refused that. Try again later."
                       : "Firestore rules are blocking this. Paste the rule from the setup steps."),
-          (_n = { status: "error", msg: t, at: _n.at }),
-          ka(),
-          Ft(t));
+          (syncState = { status: "error", msg: t, at: syncState.at }),
+          showSyncStatus(),
+          toast(t));
       }
-    } else Ft("Enter your email and password.");
+    } else toast("Enter your email and password.");
   };
   (a.querySelector("#sy-in").addEventListener("click", () => l(!1)),
     a.querySelector("#sy-new").addEventListener("click", () => l(!0)),
     a.querySelector("#sy-go").addEventListener("click", () => {
       const e = a.querySelector("#sy-ph").value;
-      (e && localStorage.setItem("protocol:pass", e), fa());
+      (e && localStorage.setItem("protocol:pass", e), syncNow());
     }),
     a.querySelector("#sy-out").addEventListener("click", () => {
-      (localStorage.removeItem("protocol:pass"), ba());
+      (localStorage.removeItem("protocol:pass"), syncSignOut());
     }),
     a.querySelector("#sy-fp").addEventListener("click", async () => {
       const e = a.querySelector("#sy-em").value.trim();
       if (e)
         try {
-          const t = await ma();
+          const t = await firebaseReady();
           (await t.auth.sendPasswordResetEmail(t.authI, e),
-            Ft(
-              "If that email has an account, a reset link is on its way. It does not reset your passphrase.",
+            toast(
+              `If that email has an account in the ${APP_KIND} app, a reset link is on its way (check spam). No email means no account here: accounts in the ${APP_OTHER} app are separate. It does not reset your passphrase.`,
             ));
         } catch (e) {
-          Ft(
+          toast(
             /invalid-email/.test(e.message || "")
               ? "That email does not look right."
               : e.message || "Could not send it.",
           );
         }
-      else Ft("Type your email first.");
+      else toast("Type your email first.");
     }));
   const r = a.querySelector("#sy-reset");
   return (
     r &&
       r.addEventListener("click", async () => {
         const e = a.querySelector("#sy-ph").value;
-        if (e.length < 8) Ft("Type the new passphrase (8+ characters) in the Passphrase box first.");
-        else if (ya())
+        if (e.length < 8) toast("Type the new passphrase (8+ characters) in the Passphrase box first.");
+        else if (syncUser())
           if (d.compounds.length || d.logs.length) {
             if (
               confirm(
@@ -4258,50 +4284,50 @@ function Sa() {
             )
               try {
                 localStorage.setItem("protocol:pass", e);
-                const n = await ma();
-                (ta(), na(), await t.set(JSON.stringify(d)));
-                const a = await la(d, e);
+                const n = await firebaseReady();
+                (stampChanges(), rememberSeen(), await t.set(JSON.stringify(d)));
+                const a = await packRecord(d, e);
                 ((a.updatedAt = Date.now()),
-                  await n.fs.setDoc(n.fs.doc(n.db, "logs", ya().uid), a),
-                  (_n = { status: "ok", msg: "", at: Date.now() }),
-                  ka(),
-                  Ft("Cloud copy replaced."));
+                  await n.fs.setDoc(n.fs.doc(n.db, "logs", syncUser().uid), a),
+                  (syncState = { status: "ok", msg: "", at: Date.now() }),
+                  showSyncStatus(),
+                  toast("Cloud copy replaced."));
               } catch (e) {
-                ((_n = { status: "error", msg: e.message || String(e), at: _n.at }),
-                  ka(),
-                  Ft(e.message || "Could not replace it."));
+                ((syncState = { status: "error", msg: e.message || String(e), at: syncState.at }),
+                  showSyncStatus(),
+                  toast(e.message || "Could not replace it."));
               }
           } else
-            Ft(
+            toast(
               "This device has no data to put in the cloud. Use a device that has your log, or add your compounds first.",
             );
-        else Ft("Sign in first.");
+        else toast("Sign in first.");
       }),
-    setTimeout(ka, 0),
+    setTimeout(showSyncStatus, 0),
     a
   );
 }
-let Ma = 0;
-async function xa() {
-  if (!jn) return;
+let reconnectTries = 0;
+async function syncReconnect() {
+  if (!SYNC_HERE) return;
   const e = d.settings && d.settings.sync;
-  if (e && e.enabled && Kn())
+  if (e && e.enabled && syncConfigText())
     try {
-      const t = await ma();
+      const t = await firebaseReady();
       if (
         (t._watching ||
           ((t._watching = !0),
           t.auth.onAuthStateChanged(t.authI, (e) => {
-            e ? ((Ma = 0), ka(), fa(!0)) : ka();
+            e ? ((reconnectTries = 0), showSyncStatus(), syncNow(!0)) : showSyncStatus();
           })),
-        await va())
+        await restoreSession())
       )
-        return ((Ma = 0), ka(), void fa(!0));
-      ka();
+        return ((reconnectTries = 0), showSyncStatus(), void syncNow(!0));
+      showSyncStatus();
     } catch (e) {
-      Ma < 5
-        ? (Ma++, setTimeout(xa, 2e3 * Ma))
-        : ((_n = { status: "error", msg: e.message || "Could not reconnect.", at: _n.at }), ka());
+      reconnectTries < 5
+        ? (reconnectTries++, setTimeout(syncReconnect, 2e3 * reconnectTries))
+        : ((syncState = { status: "error", msg: e.message || "Could not reconnect.", at: syncState.at }), showSyncStatus());
     }
 }
 function Aa() {
@@ -4336,7 +4362,7 @@ function Aa() {
       const t = d.logs.filter((t) => t.compoundId === e.id && "taken" === t.status).length;
       n.appendChild(
         Bt(
-          `<tr>\n        <td class="libname"><div class="libnm"><span class="chipsq" style="background:${e.color}"></span><span>${q(e.name)}</span></div></td>\n        <td>${k(e.name)}</td>\n        <td>${S(e.name)}</td>\n        ${L(e.name)}\n        <td class="num">${HL(e) ? Ht(fe(HL(e), 1)) + " h" : "—"}</td>\n        <td>${Ht(xe(e))}</td>\n        <td>${Ht(e.route || "—")}</td>\n        <td class="num">${Ht($e(wt(e.id), e))}</td>\n        <td class="num">${t}</td>\n        <td class="tiny">${Ht(e.notes || "")}</td>\n        <td class="num"><button class="btn ghost sm" data-editcomp="${e.id}">Edit</button></td></tr>`,
+          `<tr>\n        <td class="libname"><div class="libnm"><span class="chipsq" style="background:${e.color}"></span><span>${q(e.name)}</span></div></td>\n        <td>${k(e.name)}</td>\n        <td>${S(e.name)}</td>\n        ${L(e.name)}\n        <td class="num">${halfLifeOf(e) ? Ht(fe(halfLifeOf(e), 1)) + " h" : "—"}</td>\n        <td>${Ht(xe(e))}</td>\n        <td>${Ht(e.route || "—")}</td>\n        <td class="num">${Ht($e(wt(e.id), e))}</td>\n        <td class="num">${t}</td>\n        <td class="tiny">${Ht(e.notes || "")}</td>\n        <td class="num"><button class="btn ghost sm" data-editcomp="${e.id}">Edit</button></td></tr>`,
         ),
       );
     }
@@ -4362,7 +4388,7 @@ function $a(e) {
     : { id: ve(), name: "", halfLife: "", route: "SubQ", color: c[d.compounds.length % c.length], notes: "" };
   Vt(
     e ? "Edit compound" : "Add a compound",
-    `\n    <datalist id="lib3">${u.map((e) => `<option value="${Ht(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="c-n">Name</label><input id="c-n" list="lib3" value="${Ht(t.name)}"></div>\n    <div class="fgrid3">\n      <div class="field"><label for="c-h">Half-life (hours)</label><input id="c-h" type="number" step="any" min="0" value="${Ht(t.halfLife)}">\n        <span class="hint">Leave blank to skip the decay curve.</span></div>\n      <div class="field"><label for="c-tp">Time to peak (hours)</label><input id="c-tp" type="number" step="any" min="0" value="${Ht(t.tPeak || "")}" placeholder="${Ht(fe(TP(Object.assign({}, t, { tPeak: "" })).h, 1))}">\n        <span class="hint">How long after a shot it is highest in the blood. Blank uses ${Ht(TP(Object.assign({}, t, { tPeak: "" })).note)}.</span></div>\n      <div class="field"><label for="c-base">Measured in</label><select id="c-base">\n        <option value="mg"${"iu" !== t.base ? " selected" : ""}>mg / mcg</option>\n        <option value="iu"${"iu" === t.base ? " selected" : ""}>IU</option></select>\n        <span class="hint">IU compounds stay in IU everywhere — nothing is converted.</span></div>\n      <div class="field"><label for="c-r">Usual route</label><select id="c-r">\n        ${["SubQ", "IM", "Oral", "Nasal", "Topical"].map((e) => `<option${t.route === e ? " selected" : ""}>${e}</option>`).join("")}</select></div>\n      <div class="field"><label for="c-col">Colour</label><select id="c-col">\n        ${c.map((e) => `<option value="${e}"${t.color === e ? " selected" : ""}>${e}</option>`).join("")}</select></div></div>\n    <div class="field"><label for="c-notes">Notes</label><textarea id="c-notes">${Ht(t.notes)}</textarea></div>`,
+    `\n    <datalist id="lib3">${u.map((e) => `<option value="${Ht(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="c-n">Name</label><input id="c-n" list="lib3" value="${Ht(t.name)}"></div>\n    <div class="fgrid3">\n      <div class="field"><label for="c-h">Half-life (hours)</label><input id="c-h" type="number" step="any" min="0" value="${Ht(t.halfLife)}">\n        <span class="hint">Leave blank to skip the decay curve.</span></div>\n      <div class="field"><label for="c-tp">Time to peak (hours)</label><input id="c-tp" type="number" step="any" min="0" value="${Ht(t.tPeak || "")}" placeholder="${Ht(fe(timeToPeak(Object.assign({}, t, { tPeak: "" })).h, 1))}">\n        <span class="hint">How long after a shot it is highest in the blood. Blank uses ${Ht(timeToPeak(Object.assign({}, t, { tPeak: "" })).note)}.</span></div>\n      <div class="field"><label for="c-base">Measured in</label><select id="c-base">\n        <option value="mg"${"iu" !== t.base ? " selected" : ""}>mg / mcg</option>\n        <option value="iu"${"iu" === t.base ? " selected" : ""}>IU</option></select>\n        <span class="hint">IU compounds stay in IU everywhere — nothing is converted.</span></div>\n      <div class="field"><label for="c-r">Usual route</label><select id="c-r">\n        ${["SubQ", "IM", "Oral", "Nasal", "Topical"].map((e) => `<option${t.route === e ? " selected" : ""}>${e}</option>`).join("")}</select></div>\n      <div class="field"><label for="c-col">Colour</label><select id="c-col">\n        ${c.map((e) => `<option value="${e}"${t.color === e ? " selected" : ""}>${e}</option>`).join("")}</select></div></div>\n    <div class="field"><label for="c-notes">Notes</label><textarea id="c-notes">${Ht(t.notes)}</textarea></div>`,
     (e ? '<button class="btn danger" id="c-del">Delete</button>' : "") +
       '\n     <button class="btn ghost" data-close>Cancel</button><button class="btn" id="c-save">Save</button>',
   );
@@ -4373,7 +4399,7 @@ function $a(e) {
       t && t[1] && !n.querySelector("#c-h").value && (n.querySelector("#c-h").value = t[1]);
     }),
     n.querySelector("#c-save").addEventListener("click", () => {
-      if (((t.name = n.querySelector("#c-n").value.trim()), !t.name)) return void Ft("Give it a name.");
+      if (((t.name = n.querySelector("#c-n").value.trim()), !t.name)) return void toast("Give it a name.");
       ((t.halfLife = n.querySelector("#c-h").value),
         (t.tPeak = n.querySelector("#c-tp").value),
         (t.route = n.querySelector("#c-r").value),
@@ -4381,7 +4407,7 @@ function $a(e) {
         (t.color = n.querySelector("#c-col").value),
         (t.notes = n.querySelector("#c-notes").value));
       const e = d.compounds.findIndex((e) => e.id === t.id);
-      (e >= 0 ? (d.compounds[e] = t) : d.compounds.push(t), s(), Rt(), Ua(), Ft("Saved."));
+      (e >= 0 ? (d.compounds[e] = t) : d.compounds.push(t), s(), Rt(), redrawPage(), toast("Saved."));
     }));
   const a = n.querySelector("#c-del");
   a &&
@@ -4393,15 +4419,15 @@ function $a(e) {
         (d.logs = d.logs.filter((e) => e.compoundId !== t.id)),
         s(),
         Rt(),
-        Ua(),
-        Ft("Deleted."));
+        redrawPage(),
+        toast("Deleted."));
     });
 }
 (document.addEventListener("visibilitychange", () => {
-  "visible" === document.visibilityState && (ya() ? fa(!0) : ((Ma = 0), xa()));
+  "visible" === document.visibilityState && (syncUser() ? syncNow(!0) : ((reconnectTries = 0), syncReconnect()));
 }),
   window.addEventListener("online", () => {
-    ya() || ((Ma = 0), xa());
+    syncUser() || ((reconnectTries = 0), syncReconnect());
   }));
 const Ia = [
   ["weight", "Weight", "lb"],
@@ -4477,12 +4503,12 @@ function La(e) {
       Ia.forEach(([e]) => (t[e] = n.querySelector("#m-" + e).value)),
       (t.notes = n.querySelector("#m-n").value));
     const e = d.metrics.findIndex((e) => e.id === t.id);
-    (e >= 0 ? (d.metrics[e] = t) : d.metrics.push(t), s(), Rt(), Ua(), Ft("Reading saved."));
+    (e >= 0 ? (d.metrics[e] = t) : d.metrics.push(t), s(), Rt(), redrawPage(), toast("Reading saved."));
   });
   const a = n.querySelector("#m-del");
   a &&
     a.addEventListener("click", () => {
-      ((d.metrics = d.metrics.filter((e) => e.id !== t.id)), s(), Rt(), Ua());
+      ((d.metrics = d.metrics.filter((e) => e.id !== t.id)), s(), Rt(), redrawPage());
     });
 }
 function qa() {
@@ -4490,7 +4516,7 @@ function qa() {
     n = d.settings;
   (e.appendChild(
     Bt(
-      `<div class="head"><div><h1>Settings</h1>\n    <p>Saved on this device${"app" === t.kind ? " through Claude" : ""}. Export a backup before you switch device or clear your browser.</p></div></div>`,
+      `<div class="head"><div><h1>Settings</h1>\n    <p>Saved on this device${"app" === t.kind ? " through Claude" : ""}. Export a backup before you switch device or clear your browser.</p>${appKindLine()}</div></div>`,
     ),
   ),
     e.appendChild(
@@ -4502,7 +4528,7 @@ function qa() {
     `<div class="panel"><h2>Weight tracking</h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 10px">Off by default. Turning it on adds a Weight page and a place to log blood pressure, pulse and fasting glucose alongside it.</p>\n    <label class="check" style="margin:0"><input type="checkbox" id="s-wt" ${n.trackWeight ? "checked" : ""}><span>Track my weight</span></label></div></div>`,
   );
   (a.querySelector("#s-wt").addEventListener("change", (e) => {
-    ((n.trackWeight = e.target.checked), s(), Ua());
+    ((n.trackWeight = e.target.checked), s(), redrawPage());
   }),
     e.appendChild(a));
   const r = Bt('<div class="grid2"></div>'),
@@ -4526,12 +4552,12 @@ function qa() {
     );
   (c.querySelectorAll("#s-theme button").forEach((e) =>
     e.addEventListener("click", () => {
-      ((n.theme = e.dataset.t), s(), Ba(), Ua());
+      ((n.theme = e.dataset.t), s(), Ba(), redrawPage());
     }),
   ),
     c.querySelectorAll("#s-clock button").forEach((e) =>
       e.addEventListener("click", () => {
-        ((n.clock = e.dataset.c), s(), Ua());
+        ((n.clock = e.dataset.c), s(), redrawPage());
       }),
     ),
     c.querySelector("#s-barrel").addEventListener("change", (e) => {
@@ -4544,7 +4570,7 @@ function qa() {
     `<div class="panel"><h2>Supply you keep on hand</h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 10px">The stock bar is full at this level and starts falling below it. Set it to what you actually like to have in the cupboard.</p>\n    <div class="field"><label for="s-td">Days</label><input id="s-td" type="number" min="7" max="730" step="1" value="${Ht(n.targetDays)}">\n      <span class="hint">${fe(be(n.targetDays) / 30.44, 1)} months. Between 7 and 730 days.</span></div></div></div>`,
   );
   (u.querySelector("#s-td").addEventListener("change", (e) => {
-    ((n.targetDays = Math.max(7, Math.min(730, be(e.target.value) || 90))), s(), Ua(), Ft("Target saved."));
+    ((n.targetDays = Math.max(7, Math.min(730, be(e.target.value) || 90))), s(), redrawPage(), toast("Target saved."));
   }),
     r.appendChild(c),
     r.appendChild(u),
@@ -4558,7 +4584,7 @@ function qa() {
         `protocol-backup-${te()}.json`,
         new Blob([JSON.stringify(d, null, 2)], { type: "application/json" }),
       ),
-        Ft("Backup downloaded."));
+        toast("Backup downloaded."));
     }),
     p.querySelector("#d-csv").addEventListener("click", Ta),
     p.querySelector("#d-sites").addEventListener("click", () => {
@@ -4571,18 +4597,22 @@ function qa() {
             e.site = "";
           }),
           s(),
-          Ua(),
-          Ft("Injection sites cleared."))
-        : Ft("No logged shots have a site on them.");
+          redrawPage(),
+          toast("Injection sites cleared."))
+        : toast("No logged shots have a site on them.");
     }),
     p.querySelector("#d-imp").addEventListener("click", () => p.querySelector("#d-file").click()),
     p.querySelector("#d-file").addEventListener("change", Pa),
-    p.querySelector("#d-wipe").addEventListener("click", () => {
-      confirm("Erase everything? Export first if you want a copy. This cannot be undone.") &&
-        ((d = l()), s(), Ua(), Ft("Everything erased."));
+    p.querySelector("#d-wipe").addEventListener("click", async () => {
+      confirm(
+        "Erase everything? A copy is kept under Daily copies on this device first, but export too if you want one elsewhere.",
+      ) &&
+        (await snapBefore("before Erase everything")) &&
+        ((d = l()), s(), redrawPage(), toast("Everything erased."));
     }),
     e.appendChild(p),
-    jn && e.appendChild(Sa()),
+    e.appendChild(snapPanel()),
+    SYNC_HERE && e.appendChild(Sa()),
     e.appendChild(
       Bt(
         `<p class="tiny muted" style="margin:0">Storage in use: ${"app" === t.kind ? "Claude’s artifact storage" : "browser" === t.kind ? "this browser on this device" : "memory only — nothing will survive a reload, so export before you close"}.</p>`,
@@ -4596,10 +4626,10 @@ function Da() {
   return (
     e.appendChild(
       Bt(
-        `<div class="head"><div><h1>Instructions</h1>\n    <p>${Wn ? "Using more than one device? Start with the sync box below. Then set the app up in this order: add your stock first, then set up your protocols." : "Set the app up in this order: add your stock first, then set up your protocols."}</p></div></div>`,
+        `<div class="head"><div><h1>Instructions</h1>\n    <p>${SHARED_SYNC ? "Using more than one device? Start with the sync box below. Then set the app up in this order: add your stock first, then set up your protocols." : "Set the app up in this order: add your stock first, then set up your protocols."}</p></div></div>`,
       ),
     ),
-    Wn &&
+    SHARED_SYNC &&
       e.appendChild(
         Bt(
           '<div class="panel howto"><h2><span class="hdrwrap"><span class="pill">Optional</span>Sync your phone and computer</span>\n      <button class="btn sm" data-go="settings">Go to Settings</button></h2><div class="pbody">\n    <p class="muted">Sync keeps your phone and your computer showing the same log. It is free. You need an email address, a password, and a passphrase that scrambles your log before it leaves your device, so nobody else can read it.</p>\n    <p><b>1. On the device that already has your data (do this one first)</b></p>\n    <ol>\n      <li>Tap <b>Settings</b> and scroll down to <b>Sync between devices</b>.</li>\n      <li>Tick <b>Turn sync on</b>. More boxes appear underneath.</li>\n      <li>Type your <b>Email</b> and choose a <b>Password</b> (6 characters or more). Leave <b>Stay signed in on this device</b> ticked unless this is a shared or borrowed device.</li>\n      <li>Choose a <b>Passphrase</b> (8 characters or more) and type it again under <b>Repeat passphrase</b>. <b>Write it down somewhere safe.</b> Nobody can recover it for you.</li>\n      <li>Tap <b>Create account</b>. When the tag at the top of the panel says <b>Signed in as</b> and your email, you are set up.</li>\n    </ol>\n    <p><b>2. On your other device (phone or computer)</b></p>\n    <ol>\n      <li>Open this same site address. On a phone, first add it to your home screen so it opens like an app. <b>iPhone:</b> open it in Safari, tap the Share button, then <b>Add to Home Screen</b>. <b>Android:</b> in Chrome tap the menu (three dots), then <b>Install app</b> or <b>Add to Home screen</b>. Then open it from the new icon on your home screen.</li>\n      <li>Tap <b>Settings</b>, scroll to <b>Sync between devices</b> and tick <b>Turn sync on</b>.</li>\n      <li>Type the same email, the same password and the same passphrase.</li>\n      <li>Tap <b>Sign in</b>. Do not tap Create account. Your compounds, stock, protocols and shots appear within a few seconds.</li>\n    </ol>\n    <div class="note warn"><span>⚠</span><span><b>iPhone:</b> Safari and the home-screen app keep separate data. If you have been logging in Safari, set up sync there first (step 1), then sign in from the home-screen app (step 2). If you are starting fresh, do everything inside the home-screen app.</span></div>\n    <p><b>After that</b></p>\n    <ul>\n      <li>Changes sync on their own a few seconds after you save them, and again whenever you reopen the app. Tap <b>Sync now</b> in the same panel to do it straight away.</li>\n      <li>Log on either device. If both changed the same thing, the newer edit wins.</li>\n      <li>If you had already entered things on the second device before signing in, both sets are combined and you may see doubles. Delete the extras.</li>\n      <li>Sync is not a backup. A deletion syncs too, so keep using <b>Export a backup</b> now and then.</li>\n    </ul>\n    <p><b>If something goes wrong</b></p>\n    <ul>\n      <li><b>&ldquo;That passphrase does not open this log&rdquo;:</b> the passphrase must match exactly on every device, capital letters included.</li>\n      <li><b>Forgot your password:</b> type your email and tap <b>Forgot password</b>. A reset link arrives by email. Check your spam or junk folder if you do not see it. It does not change your passphrase.</li>\n      <li><b>Lost your passphrase:</b> on a device that still has your data, type a new passphrase in the <b>Passphrase</b> box, then tap <b>Replace the cloud copy with this device</b> at the bottom of the sync panel. The old synced copy is deleted for good. Then use the new passphrase on your other devices.</li>\n      <li><b>Shared or borrowed device:</b> untick <b>Stay signed in on this device</b>, and tap <b>Sign out</b> when you are done. Sign out also forgets the passphrase on that device.</li>\n    </ul>\n  </div></div>',
@@ -4627,7 +4657,7 @@ function Da() {
     ),
     e.appendChild(
       Bt(
-        `<div class="panel howto"><h2><span class="hdrwrap">Back up your data</span>\n      <button class="btn sm" data-go="settings">Go to Settings</button></h2><div class="pbody">\n    <p class="muted">Your data is saved on this device${jn ? ", and copied to your sync account if you turn sync on" : " only"}. A backup is one file you can keep elsewhere and load back in.</p>\n    <ol>\n      <li>Tap <b>Settings</b> and scroll down to the <b>Backup</b> panel.</li>\n      <li>Tap <b>Export a backup</b>. Your browser downloads one file named <span class="mono">protocol-backup-</span> followed by today&rsquo;s date, ending in <span class="mono">.json</span>. It holds every compound, protocol, batch, shot and reading, plus your settings.</li>\n      <li>Find the file where your browser saves downloads (usually the Downloads folder) and copy it somewhere that is not this device, such as a cloud drive, or email it to yourself.</li>\n    </ol>\n    <p><b>Do this before</b> you switch device, clear your browser data, or tap Erase everything.</p>\n    <p><b>To restore:</b> open Settings, tap <b>Import a backup</b> and pick the <span class="mono">.json</span> file. It replaces everything currently in the app, so only do it when you want what is in the file to win.</p>\n    <p class="tiny muted"><b>Export shots as CSV</b>, in the same panel, makes a shot list for a spreadsheet. It is not a backup and cannot be imported back.</p>\n  </div></div>`,
+        `<div class="panel howto"><h2><span class="hdrwrap">Back up your data</span>\n      <button class="btn sm" data-go="settings">Go to Settings</button></h2><div class="pbody">\n    <p class="muted">Your data is saved on this device${SYNC_HERE ? ", and copied to your sync account if you turn sync on" : " only"}. A backup is one file you can keep elsewhere and load back in.</p>\n    <ol>\n      <li>Tap <b>Settings</b> and scroll down to the <b>Backup</b> panel.</li>\n      <li>Tap <b>Export a backup</b>. Your browser downloads one file named <span class="mono">protocol-backup-</span> followed by today&rsquo;s date, ending in <span class="mono">.json</span>. It holds every compound, protocol, batch, shot and reading, plus your settings.</li>\n      <li>Find the file where your browser saves downloads (usually the Downloads folder) and copy it somewhere that is not this device, such as a cloud drive, or email it to yourself.</li>\n    </ol>\n    <p><b>Do this before</b> you switch device, clear your browser data, or tap Erase everything.</p>\n    <p><b>To restore:</b> open Settings, tap <b>Import a backup</b> and pick the <span class="mono">.json</span> file. It replaces everything currently in the app, so only do it when you want what is in the file to win.</p>\n    <p class="tiny muted"><b>Export shots as CSV</b>, in the same panel, makes a shot list for a spreadsheet. It is not a backup and cannot be imported back.</p>\n  </div></div>`,
       ),
     ),
     e
@@ -4683,25 +4713,26 @@ function Ta() {
       type: "text/csv",
     }),
   ),
-    Ft("CSV downloaded."));
+    toast("CSV downloaded."));
 }
 function Pa(e) {
   const t = e.target.files[0];
   if (!t) return;
   const n = new FileReader();
-  ((n.onload = () => {
+  ((n.onload = async () => {
     try {
       const e = JSON.parse(n.result);
       if (!e || !Array.isArray(e.compounds)) throw 0;
+      if (!(await snapBefore("before importing a backup"))) return;
       ((d = Object.assign(l(), e)),
         (d.settings = Object.assign(l().settings, e.settings || {})),
-        na(),
+        rememberSeen(),
         s(),
         Ba(),
-        Ua(),
-        Ft("Backup restored."));
+        redrawPage(),
+        toast("Backup restored."));
     } catch (e) {
-      Ft("That file is not a backup from this app.");
+      toast("That file is not a backup from this app.");
     }
   }),
     n.readAsText(t),
@@ -4754,15 +4785,15 @@ function Ba() {
   if (!t) return;
   const n = t.dataset;
   if (n.hasOwnProperty("close")) Rt();
-  else if ((e.preventDefault(), n.go)) ((r.tab = n.go), "log" === n.go && (r.logDraft = null), Ua());
+  else if ((e.preventDefault(), n.go)) ((r.tab = n.go), "log" === n.go && (r.logDraft = null), redrawPage());
   else if (n.logp) {
     const e = gn(n.logp, "taken", n.slot);
-    (Ua(), Ft(e || "Logged."));
-  } else if (n.missp) (gn(n.missp, "missed", n.slot), Ua(), Ft("Marked as missed."));
+    (redrawPage(), toast(e || "Logged."));
+  } else if (n.missp) (gn(n.missp, "missed", n.slot), redrawPage(), toast("Marked as missed."));
   else if (n.undop) {
     const e = st(n.undop, te(), n.slot);
-    (e && mn(e.id), Ua(), Ft("Cleared."));
-  } else if (n.logfor) ((r.logDraft = un(n.logfor, n.slot)), (r.tab = "log"), Ua());
+    (e && mn(e.id), redrawPage(), toast("Cleared."));
+  } else if (n.logfor) ((r.logDraft = un(n.logfor, n.slot)), (r.tab = "log"), redrawPage());
   else if (n.hasOwnProperty("newproto")) Mn();
   else if (n.editproto) Mn(n.editproto);
   else if (n.pauseproto) {
@@ -4770,8 +4801,8 @@ function Ba() {
     e &&
       ((e.active = !e.active),
       s(),
-      Ua(),
-      Ft(
+      redrawPage(),
+      toast(
         e.active
           ? `${pt(e.compoundId)} resumed.`
           : `${pt(e.compoundId)} paused. It is off Today until you resume it.`,
@@ -4782,26 +4813,26 @@ function Ba() {
   else if (n.editsol) In(n.editsol);
   else if (n.hasOwnProperty("newsup")) Cn();
   else if (n.editsup) Cn(n.editsup);
-  else if (n.calday) ((r.calDay = n.calday), Ua());
+  else if (n.calday) ((r.calDay = n.calday), redrawPage());
   else if (n.mark) {
     const e = Oa(n.p, n.d, n.mark, n.slot);
-    (Ua(), e && Ft(e));
+    (redrawPage(), e && toast(e));
   } else
     n.clear
-      ? (mn(n.clear), Ua())
+      ? (mn(n.clear), redrawPage())
       : n.hasOwnProperty("newcomp")
         ? $a()
         : n.editcomp
           ? $a(n.editcomp)
           : n.addlib
-            ? (Pe(n.addlib), s(), Ua(), Ft(`${n.addlib} added.`))
+            ? (Pe(n.addlib), s(), redrawPage(), toast(`${n.addlib} added.`))
             : n.hasOwnProperty("newmetric")
               ? La()
               : n.editmetric && La(n.editmetric);
 }),
   window.matchMedia &&
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-      "system" === d.settings.theme && (Ba(), Ua());
+      "system" === d.settings.theme && (Ba(), redrawPage());
     }));
 const Ha = {
   instructions: Da,
@@ -4818,7 +4849,7 @@ const Ha = {
   insights: insView,
   settings: qa,
 };
-function Ua(k) {
+function redrawPage(k) {
   const y0 = window.scrollY;
   if (k) {
     const a0 = document.activeElement;
@@ -4827,15 +4858,15 @@ function Ua(k) {
   ("weight" !== r.tab || d.settings.trackWeight || (r.tab = "today"), dn());
   const e = Ot("#view"),
     tab0 = r.tab,
-    keep = k ? UF(e) : [];
-  ((e.innerHTML = ""), e.appendChild((Ha[r.tab] || rn)()), keep.length && r.tab === tab0 && UR(e, keep));
+    keep = k ? findUnsaved(e) : [];
+  ((e.innerHTML = ""), e.appendChild((Ha[r.tab] || rn)()), keep.length && r.tab === tab0 && restoreUnsaved(e, keep));
   window.scrollTo({ top: k ? y0 : 0 });
 }
-// b77: a background redraw (Ua(1)) rebuilds the page from saved data. UF() notes every box on the page
-// whose contents differ from what the page drew (typed but not saved); UR() puts them back in the
+// b77: a background redraw (redrawPage(1)) rebuilds the page from saved data. findUnsaved() notes every box on the page
+// whose contents differ from what the page drew (typed but not saved); restoreUnsaved() puts them back in the
 // rebuilt page. A box is put back only into the same box (same id, or same place, type and name) and
 // only when the rebuilt box was drawn with the same starting value, so fresh data is never overwritten.
-function UFv(el) {
+function fieldValues(el) {
   if ("checkbox" === el.type || "radio" === el.type) return [el.checked, el.defaultChecked];
   if ("SELECT" === el.tagName) {
     const o = [...el.options],
@@ -4844,16 +4875,16 @@ function UFv(el) {
   }
   return [el.value, el.defaultValue];
 }
-function UF(root) {
+function findUnsaved(root) {
   const out = [];
   root.querySelectorAll("input,select,textarea").forEach((el, i) => {
     if (/^(file|button|submit|reset|image|hidden)$/.test(el.type)) return;
-    const [v, dv] = UFv(el);
+    const [v, dv] = fieldValues(el);
     v !== dv && out.push({ i, id: el.id, name: el.name, tag: el.tagName, type: el.type, v, dv });
   });
   return out;
 }
-function UR(root, keep) {
+function restoreUnsaved(root, keep) {
   const all = [...root.querySelectorAll("input,select,textarea")],
     put = [];
   for (const f of keep) {
@@ -4863,7 +4894,7 @@ function UR(root, keep) {
       c && !c.id && c.tagName === f.tag && c.type === f.type && c.name === f.name && (el = c);
     }
     if (!el || el.tagName !== f.tag || el.type !== f.type) continue;
-    const [v, dv] = UFv(el);
+    const [v, dv] = fieldValues(el);
     if (v !== dv || dv !== f.dv) continue;
     "checkbox" === f.type || "radio" === f.type ? (el.checked = f.v) : (el.value = f.v);
     put.push(el);
@@ -4882,16 +4913,18 @@ function UR(root, keep) {
     }
   } catch (e) {}
   const e = j();
-  (na(),
+  (rememberSeen(),
     Ba(),
-    Ua(),
+    redrawPage(),
     e && s(),
-    xa(),
-    "memory" === t.kind && Ft("This copy cannot save. Export a backup before you close it."));
+    syncReconnect(),
+    "memory" === t.kind && toast("This copy cannot save. Export a backup before you close it."));
   // b77: the sign-in password is no longer kept on the device (Firebase keeps the session itself).
   try {
     localStorage.removeItem("protocol:pw");
   } catch (e) {}
+  // b79: today's copy (src/js/snapshots.js), on opening and on coming back to the app on a new day.
+  (snapDaily(), document.addEventListener("visibilitychange", () => "visible" === document.visibilityState && snapDaily()));
   // b77: offline copy of the app (src/sw.js). Only on a real web address, not a file opened from disk.
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol))
     navigator.serviceWorker.register("./sw.js").catch(() => {});

@@ -1099,12 +1099,12 @@ async function insGo(btn, fn) {
     Rt();
     r.tab = "insights";
     r.insOpen = rep.id;
-    Ua();
-    Ft("Report ready.");
+    redrawPage();
+    toast("Report ready.");
   } catch (e) {
     btn.disabled = false;
     btn.textContent = lbl;
-    Ft(e.message || String(e));
+    toast(e.message || String(e));
   }
 }
 
@@ -1170,7 +1170,7 @@ function insView() {
   seg.querySelectorAll("button").forEach(function (b) {
     b.addEventListener("click", function () {
       r.insView = b.dataset.iv;
-      Ua();
+      redrawPage();
     });
   });
   el.appendChild(seg);
@@ -1231,7 +1231,7 @@ function insView() {
       var b = e.target.closest("[data-insopen]");
       if (b) {
         r.insOpen = b.dataset.insopen;
-        Ua();
+        redrawPage();
       }
     });
     el.appendChild(wrap);
@@ -1293,27 +1293,27 @@ function insSetup(open) {
     d.insGuides = [];
     s();
     gc();
-    Ft("Saved write-ups cleared. The next report writes them fresh.");
+    toast("Saved write-ups cleared. The next report writes them fresh.");
   });
   p.querySelector("#ins-save").addEventListener("click", function () {
     save();
-    Ft("Saved.");
-    Ua();
+    toast("Saved.");
+    redrawPage();
   });
   p.querySelector("#ins-test").addEventListener("click", async function (e) {
     var b = e.currentTarget;
     save();
     if (!insReady()) {
-      Ft("Enter the Worker address and access key first.");
+      toast("Enter the Worker address and access key first.");
       return;
     }
     b.disabled = true;
     b.textContent = "Testing…";
     try {
       await insCall("Call the ping tool with ok true.", "Ping.", INS_PING_TOOL, 50);
-      Ft("Connected. Claude answered.");
+      toast("Connected. Claude answered.");
     } catch (x) {
-      Ft(x.message || String(x));
+      toast(x.message || String(x));
     }
     b.disabled = false;
     b.textContent = "Test connection";
@@ -1381,7 +1381,7 @@ function insProtoForm(prefill) {
 function insLabForm(prefill) {
   var draws = labDraws();
   if (!draws.length) {
-    Ft("No lab draws yet. Add your labs on the Labs page first.");
+    toast("No lab draws yet. Add your labs on the Labs page first.");
     return;
   }
   var cur = (prefill && prefill.drawId) || draws[draws.length - 1].id;
@@ -1569,7 +1569,7 @@ function insDetail(rep) {
     );
     el.querySelector("#ind-back").addEventListener("click", function () {
       r.insOpen = null;
-      Ua();
+      redrawPage();
     });
     return el;
   }
@@ -1592,7 +1592,7 @@ function insDetail0(rep) {
   );
   el.querySelector("#ind-back").addEventListener("click", function () {
     r.insOpen = null;
-    Ua();
+    redrawPage();
   });
   el.querySelector("#ind-again").addEventListener("click", function () {
     rep.kind === "lab" ? insLabForm(rep) : insProtoForm(rep);
@@ -1609,8 +1609,8 @@ function insDetail0(rep) {
     });
     r.insOpen = null;
     s();
-    Ua();
-    Ft("Report deleted.");
+    redrawPage();
+    toast("Report deleted.");
   });
   el.appendChild(
     Bt(

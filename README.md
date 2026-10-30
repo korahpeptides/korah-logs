@@ -6,7 +6,7 @@ The peptide tracker (personal build "rpt" at rickspeptidetracker.rdguindon.worke
 
 - **`src/`** is the readable code. It is the only thing anyone edits.
   - `src/page.html` is the page shell. `<!-- @css:NAME -->` and `<!-- @js:NAME -->` mark where `src/css/NAME.css` and `src/js/NAME.js` go.
-  - `src/js/app.js` is the main app. It was recovered from the scrambled b67 file, so most names are short (glossary below).
+  - `src/js/app.js` is the main app. It was recovered from the scrambled b67 file, so most names are short (glossary below). From b79 the sync, level-estimate, redraw and toast code use readable names; the rest are still short.
   - `src/js/labs.js` is the Labs tab and `src/js/insights.js` is the Insights tab. Both have readable names.
 - **`build.mjs`** makes `dist/personal/index.html` and `dist/community/index.html`. It scrambles the code and keeps the `/*! © Korah Peptides */` notices. It also bundles third-party libraries marked `<!-- @lib:NAME -->` (the label QR library, from `node_modules`) and writes `sw.js` next to each page from `src/sw.js`.
 - **`src/sw.js`** is the offline copy (b77). The page is fetched fresh whenever there is a connection and kept in a cache; with no connection (or no answer in 6 s) the cached copy opens. Firebase code and fonts are cached on first load. Sync, Insights and analytics are not touched.
@@ -44,21 +44,25 @@ npm test        # builds both files, runs tools/test.py on both (headless) and t
 
 ## Rules (carried over from the old build log)
 
-1. Any new data list must be added to both `l()` (empty state) and `Fn` (sync list), or the next sync wipes it.
-2. `Ua()` redraws the page and scrolls to the top. `Ua(1)` keeps the scroll position and skips the redraw while a box is being typed in. Anything that runs on its own (not from a tap) uses `Ua(1)`.
+1. Any new data list must be added to both `l()` (empty state) and `SYNC_LISTS` (sync list), or the next sync wipes it.
+2. `redrawPage()` redraws the page and scrolls to the top. `redrawPage(1)` keeps the scroll position and skips the redraw while a box is being typed in. Anything that runs on its own (not from a tap) uses `redrawPage(1)`.
 3. Never put lab results or any personal data in the code. The page is public.
 4. Never spread a large array into a function call (`fn(...big)`, `Math.max.apply(null, big)`). It broke sync at b58.
 5. A protocol can have two doses a day. Loop over `SL(p)` and pass the slot to `st()` / `lt()`.
 6. A phase can have its own schedule. Use `EF(p, date)` or `Ye(p, date)`, never `p.sched` directly.
 7. Tapping the dark area round a form must not close it.
 9. Sync record format (b77): JSON, gzip-compressed (`z: 1`), then encrypted when there is a passphrase. Records without `z` (before b77) still read. A record over 1,000 KB is refused with a message (Firestore holds at most 1 MB per record). An older copy of the app can't read a `z` record: it shows a sync error and writes nothing, so reload it.
-10. Settings sync one by one (b77): `ta()` stamps each changed setting in `d.settings._mk`, `SM()` merges per setting. The last-seen values live in `XS`, never in `Xn` (unknown keys in `Xn` are treated as deleted items).
+10. Settings sync one by one (b77): `stampChanges()` stamps each changed setting in `d.settings._mk`, `mergeSettings()` merges per setting. The last-seen values live in `seenSettings`, never in `seenItems` (unknown keys in `seenItems` are treated as deleted items).
 11. Insights keeps the newest 10 reports of each kind (`INS_KEEP`).
-12. A background redraw (`Ua(1)`) keeps typed-but-unsaved boxes (`UF`/`UR`) and is skipped when a sync brought nothing new (`SG`). Boxes are drawn with `value="…"` from saved data so this works; a box filled by code after drawing is left alone.
-13. The sign-in password is never stored. Firebase keeps the session; `va()` waits for it to restore.
-14. Level estimate (b78): each dose is absorbed over its time to peak, then cleared by its half-life (`AF`, `KA`). Time to peak comes from the compound's own setting (`tPeak`), then published figures (`TPK`), then a rough figure by route (`TPD`). Add to `TPK` only with a human source, noted in the entry. Doses are cached per compound in `DS()`; the cache rebuilds after every `s()` (`DSV`), so anything that changes logs or compounds must go through `s()`.
+12. A background redraw (`redrawPage(1)`) keeps typed-but-unsaved boxes (`findUnsaved`/`restoreUnsaved`) and is skipped when a sync brought nothing new (`contentSignature`). Boxes are drawn with `value="…"` from saved data so this works; a box filled by code after drawing is left alone.
+13. The sign-in password is never stored. Firebase keeps the session; `restoreSession()` waits for it to restore.
+14. Level estimate (b78): each dose is absorbed over its time to peak, then cleared by its half-life (`fractionInBody`, `absorbRate`). Time to peak comes from the compound's own setting (`tPeak`), then published figures (`PEAK_TIMES`), then a rough figure by route (`roughPeakTime`). Add to `PEAK_TIMES` only with a human source, noted in the entry. Doses are cached per compound in `DS()`; the cache rebuilds after every `s()` (`DSV`), so anything that changes logs or compounds must go through `s()`.
 15. A sync passphrase (8+ characters) is required on both builds (b78). A personal cloud copy stored before b78 without one is read, then uploaded encrypted.
-8. Sync switches on only at `my.korahpeptides.com` or a `rickspeptidetracker.*` address (`Vn`). The community build has its own shared Firebase (`Rn`, `Wn`).
+16. Daily copies (b79, `src/js/snapshots.js`): one per day on this device (IndexedDB, last 14) plus one before a restore, import or Erase everything (last 5). Never synced. Restoring stamps restored items as new so they win the next sync.
+17. Sync runs inside a Firestore transaction (b79), so two devices syncing at once both keep their changes. Deletion markers are dropped after 90 days (`DEL_KEEP_DAYS`).
+18. Never declare a top-level function name twice, in one file or across files (they share one namespace and the later one silently wins: b78 broke the protocol draft this way). `build.mjs` refuses to build if it happens.
+19. Personal and Community look different on purpose (b79): amber vs blue stripe and badge, page title, and a line in Settings and the sync box. `APP_KIND` / `APP_OTHER`.
+8. Sync switches on only at `my.korahpeptides.com` or a `rickspeptidetracker.*` address (`OWN_SYNC_SITE`). The community build has its own shared Firebase (`COMMUNITY_FIREBASE`, `SHARED_SYNC`).
 
 ## Glossary for `src/js/app.js`
 
@@ -67,11 +71,11 @@ npm test        # builds both files, runs tools/test.py on both (headless) and t
 | `d` | all the user's data (saved to the device, synced) |
 | `r` | screen state (current tab, selections) |
 | `s()` | save `d` (and schedule a sync) |
-| `Ua()` | redraw the current page |
+| `redrawPage()` | redraw the current page |
 | `Ht()` | escape text for HTML |
 | `Bt()` | turn an HTML string into an element |
 | `Vt(title, body, foot)` / `Rt()` | open / close a form |
-| `Ft()` | show a toast message |
+| `toast()` | show a toast message |
 | `Ot()` | `document.querySelector` |
 | `te()` | today as YYYY-MM-DD |
 | `ne(date, n)` | date plus n days |
@@ -90,14 +94,14 @@ npm test        # builds both files, runs tools/test.py on both (headless) and t
 | `ln()` | side-menu tabs |
 | `Ha` | tab name to page function |
 | `l()` | empty data |
-| `Fn` | lists that sync |
-| `aa()` | sync merge |
-| `HL(c)` | half-life |
-| `la()` / `da()` | pack / unpack the sync record (compress, encrypt) |
-| `SM()` | merge settings one by one |
-| `SG()` | content signature used to tell whether a sync changed anything |
-| `Et(id, ms)` / `Tt(id)` | estimated amount in the body at a time / highest in the last 30 days |
-| `TP(c, route)` | time to peak and where it came from |
-| `UF()` / `UR()` | note / put back typed-but-unsaved boxes around a redraw |
+| `SYNC_LISTS` | lists that sync |
+| `mergeData()` | sync merge |
+| `halfLifeOf(c)` | half-life |
+| `packRecord()` / `unpackRecord()` | pack / unpack the sync record (compress, encrypt) |
+| `mergeSettings()` | merge settings one by one |
+| `contentSignature()` | content signature used to tell whether a sync changed anything |
+| `levelAt(id, ms)` / `recentPeak(id)` | estimated amount in the body at a time / highest in the last 30 days |
+| `timeToPeak(c, route)` | time to peak and where it came from |
+| `findUnsaved()` / `restoreUnsaved()` | note / put back typed-but-unsaved boxes around a redraw |
 
 The full history up to b67 is in the Korah Peptides project doc `claude/tracker-build-log.md`. From b68 on, the history is this repo's commit log.
