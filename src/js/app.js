@@ -3316,7 +3316,7 @@ function Bn() {
   let o = be(n.labelStock) || 0;
   const i = Bt('<div class="split"></div>'),
     l = Bt(
-      `<div class="stack">\n    <div class="panel"><div class="pbody">\n      <div class="labelcard" id="lcard">\n        <img id="limg" alt="Vial label preview" style="width:100%;max-width:472px;height:auto;border-radius:3px">\n      </div>\n      <p class="tiny muted" style="margin:12px 0 0">${be(n.bacMl) ? "This batch is mixed, so the label carries its concentration and units per dose." : "This batch is still powder, so the label says so instead of a concentration."}</p>\n    </div></div>\n    <div class="panel"><h2>Label stock</h2><div class="pbody">\n      <div class="chips" id="lb-stock">${Tn.map((e, t) => `<button class="chip" data-si="${t}" aria-pressed="${o === t ? "true" : "false"}">\n        <span class="chipdot" style="background:${e[1]}"></span><span class="chipdot" style="background:${e[2]}"></span>${Ht(e[0])}</button>`).join("")}</div>\n      <p class="tiny muted" style="margin:12px 0 0">Preview only. The file you download is always black on white — a thermal printer decides per dot whether to lay ribbon down and cannot know what colour is on the spool, so gold on black and black on silver print from the same image.</p>\n      <p class="tiny muted" style="margin:8px 0 0">40 × 20 mm at 300 dpi — 472×236 pixels. Black and white only.</p>\n      <div class="row" style="margin-top:14px">\n        <button class="btn" id="lb-share" hidden>Save to Photos</button>\n        <button class="btn" id="lb-png">Download PNG</button>\n        <button class="btn ghost" id="lb-print">Print</button></div>\n      <p class="tiny muted" style="margin:8px 0 0" id="lb-hint">You can also press and hold the label to save it.</p>\n    </div></div></div>`,
+      `<div class="stack">\n    <div class="panel"><div class="pbody">\n      <div class="labelcard" id="lcard">\n        <img id="limg" alt="Vial label preview" style="width:100%;max-width:472px;height:auto;border-radius:3px">\n      </div>\n      <p class="tiny muted" style="margin:12px 0 0">${be(n.bacMl) ? "This batch is mixed, so the label carries its concentration and units per dose." : "This batch is still powder, so the label says so instead of a concentration."}</p>\n    </div></div>\n    <div class="panel"><h2>Label stock</h2><div class="pbody">\n      <div class="chips" id="lb-stock">${Tn.map((e, t) => `<button class="chip" data-si="${t}" aria-pressed="${o === t ? "true" : "false"}">\n        <span class="chipdot" style="background:${e[1]}"></span><span class="chipdot" style="background:${e[2]}"></span>${Ht(e[0])}</button>`).join("")}</div>\n      <p class="tiny muted" style="margin:12px 0 0">Preview only. The file you download is always black on white — a thermal printer decides per dot whether to lay ribbon down and cannot know what colour is on the spool, so gold on black and black on silver print from the same image.</p>\n      <p class="tiny muted" style="margin:8px 0 0">40 × 20 mm at 300 dpi — 472×236 pixels. Black and white only.</p>\n      <div class="row" style="margin-top:14px">\n        <button class="btn" id="lb-share" hidden>Save to Photos</button>\n        <button class="btn" id="lb-png">Download PNG</button>\n        <button class="btn ghost" id="lb-print">Print</button></div>\n      <p class="tiny muted" style="margin:8px 0 0" id="lb-hint">You can also press and hold the label to save it.</p>\n      <div class="row" style="margin-top:14px"><button class="btn" id="lb-xlsx">Excel for Niimbot</button></div>\n      <p class="tiny muted" style="margin:8px 0 0">One row per vial you have in stock, one column per line on the label${COMMUNITY ? "" : ", plus the CoA link for the QR code"}. In Niimbot, link each text box in your template to a column, then load this file and every row prints as its own label. Your layout stays fully editable in Niimbot.</p>\n      <details class="tiny muted" style="margin:8px 0 0"><summary style="cursor:pointer">How to set up the Niimbot template</summary><ol style="margin:8px 0 0;padding-left:18px">\n        <li>Tap <b>Excel for Niimbot</b>. On a phone, choose <b>Save to Files</b>.</li>\n        <li>In the Niimbot app, open your vial template, tap <b>Data source</b> (Excel), then <b>Link data source</b> and pick the file.</li>\n        <li>Tap each text box and link it to the matching column (Compound, Strength, Bottom bar and so on)${COMMUNITY ? "" : ". Link the QR code element to <b>CoA QR</b>"}.</li>\n        <li>Save the template. Next time, just link the new file — the boxes stay where you put them.</li>\n        <li>Pick the rows you want and print.</li></ol></details>\n    </div></div></div>`,
     ),
     c = Bt('<div class="panel"><h2>What is printed</h2><div class="pbody" id="lf2"></div></div>');
   (i.appendChild(l), i.appendChild(c), e.appendChild(i));
@@ -3397,6 +3397,20 @@ function Bn() {
     };
   l.querySelector("#lb-png").addEventListener("click", () => {
     (Ea(v(), g()), Ft("Label downloaded."));
+  });
+  // Excel for Niimbot: every vial in stock, the one on screen with its unsaved edits.
+  l.querySelector("#lb-xlsx").addEventListener("click", async () => {
+    const blob = NbXlsx(NbRows(t, n.id, a)),
+      name = `niimbot-labels-${te()}.xlsx`,
+      file = new File([blob], name, { type: blob.type });
+    const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (mobile && navigator.canShare && navigator.canShare({ files: [file] }))
+      try {
+        return void (await navigator.share({ files: [file] }));
+      } catch (e) {
+        if (e && "AbortError" === e.name) return;
+      }
+    (Ea(name, blob), Ft("Excel file downloaded."));
   });
   const b = l.querySelector("#lb-share");
   try {
@@ -4369,6 +4383,121 @@ function Da() {
     ),
     e
   );
+}
+// ---- Excel export for the Niimbot app (Data source → Link data source) ----
+// Column headers are what you see in Niimbot when linking a text box. Keep them stable:
+// renaming one breaks the link in templates people have already set up.
+const NB_COLS = [
+  ["name", "Compound"],
+  ["ribbon", "Ribbon"],
+  ["under", "Under name"],
+  ["strength", "Strength"],
+  ["note", "Note"],
+  ["between", "Between bars"],
+  ["bottom", "Bottom bar"],
+  ["small", "Small print"],
+  ["made", "Made by"],
+  ["useby", "Use by"],
+  ["lot", "Lot"],
+  ["coa", "CoA QR"],
+].filter(([k]) => !COMMUNITY || (k !== "lot" && k !== "coa"));
+function NbRows(batches, liveId, live) {
+  const rows = [NB_COLS.map((c) => c[1])];
+  for (const b of ft(batches)) {
+    const f = b.id === liveId && live ? live : Pn(b);
+    rows.push(NB_COLS.map(([k]) => String(f[k] == null ? "" : f[k])));
+  }
+  return rows;
+}
+// Minimal .xlsx writer (one sheet, text cells, stored zip). No library needed.
+function NbXlsx(rows) {
+  const x = (v) =>
+    String(v)
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const col = (i) => String.fromCharCode(65 + i),
+    strs = [],
+    idx = new Map(),
+    si = (v) => (idx.has(v) || (idx.set(v, strs.length), strs.push(v)), idx.get(v));
+  let sheet = "";
+  rows.forEach((r, ri) => {
+    sheet += `<row r="${ri + 1}">`;
+    r.forEach((v, ci) => {
+      v !== "" && (sheet += `<c r="${col(ci)}${ri + 1}" t="s"${ri ? "" : ' s="1"'}><v>${si(v)}</v></c>`);
+    });
+    sheet += "</row>";
+  });
+  const W = (n, a) => a.map((w) => `<col min="${w[0]}" max="${w[0]}" width="${w[1]}" customWidth="1"/>`).join(""),
+    widths = W(0, NB_COLS.map((c, i) => [i + 1, c[0] === "coa" ? 46 : c[0] === "small" ? 40 : 18]));
+  const ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"',
+    rns = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"',
+    pr = "http://schemas.openxmlformats.org/package/2006/relationships",
+    od = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/",
+    hd = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  const files = [
+    [
+      "[Content_Types].xml",
+      `${hd}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+    ],
+    ["_rels/.rels", `${hd}<Relationships xmlns="${pr}"><Relationship Id="rId1" Type="${od}officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ["xl/workbook.xml", `${hd}<workbook ${ns} ${rns}><sheets><sheet name="Labels" sheetId="1" r:id="rId1"/></sheets></workbook>`],
+    [
+      "xl/_rels/workbook.xml.rels",
+      `${hd}<Relationships xmlns="${pr}"><Relationship Id="rId1" Type="${od}worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${od}sharedStrings" Target="sharedStrings.xml"/><Relationship Id="rId3" Type="${od}styles" Target="styles.xml"/></Relationships>`,
+    ],
+    [
+      "xl/styles.xml",
+      `${hd}<styleSheet ${ns}><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`,
+    ],
+    ["xl/worksheets/sheet1.xml", `${hd}<worksheet ${ns}><cols>${widths}</cols><sheetData>${sheet}</sheetData></worksheet>`],
+    [
+      "xl/sharedStrings.xml",
+      `${hd}<sst ${ns} count="${strs.length}" uniqueCount="${strs.length}">${strs.map((v) => `<si><t xml:space="preserve">${x(v)}</t></si>`).join("")}</sst>`,
+    ],
+  ];
+  return new Blob([NbZip(files)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+function NbZip(files) {
+  const enc = new TextEncoder(),
+    T = [];
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    T[n] = c >>> 0;
+  }
+  const crc = (b) => {
+    let c = 0xffffffff;
+    for (let i = 0; i < b.length; i++) c = T[(c ^ b[i]) & 255] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const parts = [],
+    central = [];
+  let off = 0;
+  for (const [name, text] of files) {
+    const nb = enc.encode(name),
+      data = enc.encode(text),
+      c = crc(data),
+      h = new DataView(new ArrayBuffer(30));
+    [[0, 0x04034b50, 4], [4, 20, 2], [6, 0x0800, 2], [8, 0, 2], [10, 0, 2], [12, 0x21, 2], [14, c, 4], [18, data.length, 4], [22, data.length, 4], [26, nb.length, 2], [28, 0, 2]].forEach(([o, v, z]) =>
+      z === 4 ? h.setUint32(o, v, !0) : h.setUint16(o, v, !0),
+    );
+    parts.push(new Uint8Array(h.buffer), nb, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    [[0, 0x02014b50, 4], [4, 20, 2], [6, 20, 2], [8, 0x0800, 2], [10, 0, 2], [12, 0, 2], [14, 0x21, 2], [16, c, 4], [20, data.length, 4], [24, data.length, 4], [28, nb.length, 2], [30, 0, 2], [32, 0, 2], [34, 0, 2], [36, 0, 2], [38, 0, 4], [42, off, 4]].forEach(([o, v, z]) =>
+      z === 4 ? ch.setUint32(o, v, !0) : ch.setUint16(o, v, !0),
+    );
+    central.push(new Uint8Array(ch.buffer), nb);
+    off += 30 + nb.length + data.length;
+  }
+  const csize = central.reduce((a, b) => a + b.length, 0),
+    e = new DataView(new ArrayBuffer(22));
+  [[0, 0x06054b50, 4], [8, files.length, 2], [10, files.length, 2], [12, csize, 4], [16, off, 4]].forEach(([o, v, z]) =>
+    z === 4 ? e.setUint32(o, v, !0) : e.setUint16(o, v, !0),
+  );
+  return new Blob([...parts, ...central, new Uint8Array(e.buffer)]);
 }
 function Ea(e, t) {
   const n = document.createElement("a");

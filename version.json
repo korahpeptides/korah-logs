@@ -1,5 +1,5 @@
 {
-  "build": 71,
+  "build": 72,
   "date": "2026-10-29",
-  "note": "Protocols: Change on a date sets up an old and a new dose or schedule from a chosen day"
+  "note": "Labels: Excel for Niimbot \u2014 one row per vial to link to text boxes in a Niimbot template"
 }
