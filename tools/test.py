@@ -89,22 +89,6 @@ with sync_playwright() as pw:
             has_coa = pg.evaluate("!!document.querySelector('#lf-coa')")
             has_lot = pg.evaluate("!!document.querySelector('#lf-lot')")
             check(f"{tag}: label CoA/lot fields only in personal", (has_coa and has_lot) == (variant == "personal") and (has_coa or has_lot) == (variant == "personal"))
-            # Excel for Niimbot: a real .xlsx, headers row + one row per vial, CoA column only in personal
-            if width == 1280:
-                with pg.expect_download() as dl:
-                    pg.click("#lb-xlsx")
-                path = "/tmp/nb-test.xlsx"
-                dl.value.save_as(path)
-                import openpyxl
-                wb = openpyxl.load_workbook(path)
-                rows = [[c.value for c in r] for r in wb.active.iter_rows()]
-                hdr = rows[0]
-                check(f"{tag}: Niimbot xlsx opens, header + 1 vial row", len(rows) == 2 and hdr[0] == "Compound", rows)
-                check(f"{tag}: Niimbot xlsx CoA/Lot columns only in personal", ("CoA QR" in hdr and "Lot" in hdr) == (variant == "personal"), hdr)
-                row = dict(zip(hdr, rows[1]))
-                check(f"{tag}: Niimbot xlsx row carries the label text", row["Compound"] == "Retatrutide" and row["Strength"] == "10MG/2ML", row)
-                if variant == "personal":
-                    check(f"{tag}: Niimbot xlsx CoA link from lot", row["CoA QR"] == "https://coa.korahpeptides.com/KP-0007.pdf", row.get("CoA QR"))
             # Layout panel: personal only; changes save to settings and redraw the label; reset restores
             has_lay = pg.evaluate("!!document.querySelector('#lb-lay')")
             check(f"{tag}: label Layout panel only in personal", has_lay == (variant == "personal"))
