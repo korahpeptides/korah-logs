@@ -1657,3 +1657,18 @@ table.libtbl td.sch {
 .qrbox .cprow input {
   flex: 1 1 100%;
 }
+
+/* Label layout panel */
+.lbsticky { position: sticky; top: 0; z-index: 5; }
+.lysec { font-size: 12px; font-weight: 600; color: var(--ink-2); margin: 14px 0 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+.lyrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-top: 1px solid var(--rule); flex-wrap: wrap; }
+.lyrow.lyoff .lyname { color: var(--ink-3); text-decoration: line-through; }
+.lyname { font-size: 13.5px; flex: 1 1 140px; min-width: 0; }
+.lyctl { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.lyb { min-width: 32px; height: 32px; padding: 0 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--field); color: var(--ink); font-size: 14px; }
+.lyb:disabled { opacity: 0.35; }
+.lyb[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.lybold { font-weight: 700; }
+.lyshow { min-width: 70px; font-size: 12.5px; }
+.lypct { min-width: 42px; text-align: center; font-size: 12.5px; }
+.lyctl .seg button { padding: 6px 10px; }

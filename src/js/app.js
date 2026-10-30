@@ -3176,111 +3176,205 @@ function PnBase(e) {
     e.label || {},
   );
 }
+// ---- Label layout (personal build): per-line size, bold, show/hide and order, QR size and position ----
+// Stored in d.settings.labelLayout, so it syncs with settings. Applies to every vial's label.
+// The defaults reproduce the original fixed design exactly.
+const LB_MAIN = {
+    name: { t: "Compound", px: 40, b: !0, gap: 3 },
+    under: { t: "Under the name", px: 25, b: !1, gap: 6 },
+    strength: { t: "Strength (bar)", px: 34, b: !0, bar: !0, gap: 3 },
+    note: { t: "Note under the strength", px: 17, b: !1, gap: 4 },
+    between: { t: "Between the bars", px: 24, b: !1, gap: 6 },
+    bottom: { t: "Bottom bar", px: 34, b: !0, bar: !0, gap: 0 },
+  },
+  LB_SIDE = {
+    ribbon: { t: "Left ribbon", px: 26 },
+    small: { t: "Small print", px: 13 },
+    made: { t: "Made by", px: 13 },
+    useby: { t: "Use by", px: 13 },
+    lot: { t: "Lot", px: 13 },
+  };
+function LLget() {
+  const L = (!COMMUNITY && d.settings.labelLayout) || {},
+    keys = Object.keys(LB_MAIN),
+    order = (Array.isArray(L.order) ? L.order : []).filter((k, i, a) => keys.includes(k) && a.indexOf(k) === i);
+  keys.forEach((k) => order.includes(k) || order.push(k));
+  const m = {},
+    sd = {};
+  keys.forEach((k) => {
+    const v = (L.m && L.m[k]) || {};
+    m[k] = { sc: +v.sc || 100, b: "boolean" == typeof v.b ? v.b : LB_MAIN[k].b, h: !!v.h };
+  });
+  Object.keys(LB_SIDE).forEach((k) => {
+    const v = (L.sd && L.sd[k]) || {};
+    sd[k] = { sc: +v.sc || 100, h: !!v.h };
+  });
+  const q = L.qr || {};
+  return {
+    order,
+    m,
+    sd,
+    qr: { size: ["s", "m", "l"].includes(q.size) ? q.size : "m", pos: ["top", "middle", "bottom"].includes(q.pos) ? q.pos : "bottom", h: !!q.h },
+  };
+}
 function On(e, t, n, a) {
+  const L = LLget();
   ((e.width = 472), (e.height = 236));
   const s = e.getContext("2d");
   ((s.fillStyle = n), s.fillRect(0, 0, 472, 236), (s.fillStyle = a));
-  const o = (e, t, n, a, o) => {
-    let i = n;
-    do {
-      if (
-        ((s.font = `${a || "700"} ${i}px ${o || '"IBM Plex Sans",Arial,sans-serif'}`),
-        s.measureText(e).width <= t)
-      )
-        break;
-      i -= 1;
-    } while (i > 6);
-    return i;
-  };
+  const F = '"IBM Plex Sans",Arial,sans-serif',
+    o = (e, t, n, a) => {
+      let i = Math.max(6, Math.round(n));
+      do {
+        if (((s.font = `${a || "700"} ${i}px ${F}`), s.measureText(e).width <= t)) break;
+        i -= 1;
+      } while (i > 6);
+      return i;
+    };
   let i = 8;
-  if (t.ribbon) {
+  if (t.ribbon && !L.sd.ribbon.h) {
     const e = 40;
     (s.fillRect(8, 8, e, 220), s.save(), s.translate(8 + e / 2, 222), s.rotate(-Math.PI / 2));
-    const l = o(t.ribbon, 206, 26, "700");
+    const l = o(t.ribbon, 206, (26 * L.sd.ribbon.sc) / 100, "700");
     ((s.fillStyle = n),
       (s.textAlign = "left"),
       (s.textBaseline = "middle"),
-      (s.font = `700 ${l}px "IBM Plex Sans",Arial,sans-serif`),
+      (s.font = `700 ${l}px ${F}`),
       s.fillText(t.ribbon, 0, 0),
       s.restore(),
       (s.fillStyle = a),
       (i = 8 + e + 10));
   }
+  // Sideways lines down the right edge.
+  const side = ["small", "made", "useby", "lot"]
+    .filter((k) => t[k] && !L.sd[k].h && !(COMMUNITY && "lot" === k))
+    .map((k) => {
+      const px = Math.max(6, Math.round((13 * L.sd[k].sc) / 100));
+      return { k, px, sp: px + 4 };
+    });
   let l = 464;
-  const d = [t.small, t.made, t.useby, COMMUNITY ? "" : t.lot].filter(Boolean);
-  d.length &&
-    ((l = 464 - (17 * d.length + 4)),
-    d.forEach((e, t) => {
-      (s.save(), s.translate(458 - 17 * t, 228), s.rotate(-Math.PI / 2));
-      const n = o(e, 220, 13, "600");
-      ((s.font = `600 ${n}px "IBM Plex Sans",Arial,sans-serif`),
-        (s.textAlign = "left"),
-        (s.textBaseline = "middle"),
-        s.fillText(e, 0, 0),
-        s.restore());
-    }));
+  if (side.length) {
+    let edge = 466.5;
+    side.forEach((x) => {
+      const cx = edge - x.sp / 2;
+      ((edge -= x.sp), s.save(), s.translate(cx, 228), s.rotate(-Math.PI / 2));
+      const n = o(t[x.k], 220, x.px, "600");
+      ((s.font = `600 ${n}px ${F}`), (s.textAlign = "left"), (s.textBaseline = "middle"), s.fillText(t[x.k], 0, 0), s.restore());
+    });
+    l = edge - 6.5;
+  }
   let r = l - 8;
-  if (!COMMUNITY && t.coa && "undefined" != typeof qrcode)
+  if (!COMMUNITY && t.coa && !L.qr.h && "undefined" != typeof qrcode)
     try {
       const e = qrcode(0, "Q");
       (e.addData(t.coa), e.make());
       const o = e.getModuleCount(),
         q = 4,
-        k = (o + 2 * q) * 3 <= 150 ? 3 : 2,
-        z = (o + 2 * q) * k,
+        w = o + 2 * q,
+        auto = 3 * w <= 150 ? 3 : 2;
+      let k = "s" === L.qr.size ? 2 : "l" === L.qr.size ? auto + 1 : auto;
+      for (; k > 1 && w * k > 220; ) k--;
+      const z = w * k,
         d = r - z,
-        c = 228 - z;
+        c = "top" === L.qr.pos ? 8 : "middle" === L.qr.pos ? Math.round((236 - z) / 2) : 228 - z;
       ((s.fillStyle = n), s.fillRect(d, c, z, z), (s.fillStyle = a));
       for (let t = 0; t < o; t++)
         for (let n = 0; n < o; n++) e.isDark(t, n) && s.fillRect(d + (q + n) * k, c + (q + t) * k, k, k);
       r = d - 8;
     } catch (e) {}
   const c = r - i;
+  // Main lines, top to bottom in the chosen order. If they don't fit, everything shrinks together.
+  const items = L.order
+    .filter((k) => t[k] && !L.m[k].h)
+    .map((k) => ({ k, sp: LB_MAIN[k], w: L.m[k].b ? "700" : "400" }));
+  const measure = (f) => {
+    let H = 0;
+    items.forEach((x) => {
+      ((x.px = o(t[x.k], x.sp.bar ? c - 16 : c, (x.sp.px * L.m[x.k].sc * f) / 100, x.w)),
+        (x.h = x.sp.bar ? x.px + 12 : x.px),
+        (H += x.h + x.sp.gap));
+    });
+    return H;
+  };
+  let f = 1,
+    H = measure(f);
+  for (let n = 0; n < 6 && H > 220; n++) ((f *= 220 / H), (H = measure(f)));
   let u = 12;
-  if (t.name) {
-    const e = o(t.name, c, 40, "700");
-    ((s.font = `700 ${e}px "IBM Plex Sans",Arial,sans-serif`),
-      (s.textAlign = "left"),
-      (s.textBaseline = "top"),
-      s.fillText(t.name, i, u),
-      (u += e + 3));
-  }
-  if (t.under) {
-    const e = o(t.under, c, 25, "400");
-    ((s.font = `400 ${e}px "IBM Plex Sans",Arial,sans-serif`), s.fillText(t.under, i, u), (u += e + 6));
-  }
-  if (t.strength) {
-    const e = o(t.strength, c - 16, 34, "700"),
-      l = e + 12;
-    (s.fillRect(i, u, c, l),
-      (s.fillStyle = n),
-      (s.font = `700 ${e}px "IBM Plex Sans",Arial,sans-serif`),
-      (s.textBaseline = "middle"),
-      s.fillText(t.strength, i + 8, u + l / 2 + 1),
-      (s.fillStyle = a),
-      (s.textBaseline = "top"),
-      (u += l + 3));
-  }
-  if (t.note) {
-    const e = o(t.note, c, 17, "400");
-    ((s.font = `400 ${e}px "IBM Plex Sans",Arial,sans-serif`), s.fillText(t.note, i, u), (u += e + 4));
-  }
-  if (t.between) {
-    const e = o(t.between, c, 24, "400");
-    ((s.font = `400 ${e}px "IBM Plex Sans",Arial,sans-serif`), s.fillText(t.between, i, u), (u += e + 6));
-  }
-  if (t.bottom) {
-    const e = o(t.bottom, c - 16, 34, "700"),
-      l = e + 12,
-      d = Math.max(u, 228 - l);
-    (s.fillRect(i, d, c, l),
-      (s.fillStyle = n),
-      (s.font = `700 ${e}px "IBM Plex Sans",Arial,sans-serif`),
-      (s.textBaseline = "middle"),
-      s.fillText(t.bottom, i + 8, d + l / 2 + 1),
-      (s.fillStyle = a));
-  }
+  items.forEach((x, idx) => {
+    s.textAlign = "left";
+    if (x.sp.bar) {
+      const y = idx === items.length - 1 ? Math.max(u, 228 - x.h) : u;
+      (s.fillRect(i, y, c, x.h),
+        (s.fillStyle = n),
+        (s.font = `${x.w} ${x.px}px ${F}`),
+        (s.textBaseline = "middle"),
+        s.fillText(t[x.k], i + 8, y + x.h / 2 + 1),
+        (s.fillStyle = a),
+        (u = y + x.h + x.sp.gap));
+    } else
+      ((s.font = `${x.w} ${x.px}px ${F}`),
+        (s.textBaseline = "top"),
+        s.fillText(t[x.k], i, u),
+        (u += x.h + x.sp.gap));
+  });
 }
+// Layout panel on the Labels tab (personal build only). Changes save straight away and apply to every label.
+const LyPanel = COMMUNITY ? null : function (box, redraw) {
+  if (!box) return;
+  const save = (L) => ((d.settings.labelLayout = L), s(), redraw(), draw()),
+    pct = (v) => `<span class="mono lypct">${v}%</span>`,
+    sz = (k, v) =>
+      `<button type="button" class="lyb" data-a="dn" data-k="${k}" aria-label="Smaller"${v <= 50 ? " disabled" : ""}>−</button>${pct(v)}<button type="button" class="lyb" data-a="up" data-k="${k}" aria-label="Bigger"${v >= 160 ? " disabled" : ""}>+</button>`,
+    show = (k, h) =>
+      `<button type="button" class="lyb lyshow" data-a="hide" data-k="${k}" aria-pressed="${!h}">${h ? "Hidden" : "Shown"}</button>`;
+  function draw() {
+    const L = LLget(),
+      n = L.order.length;
+    box.innerHTML =
+      '<p class="tiny muted" style="margin:0 0 10px">Applies to every vial’s label. Saved as you go. If the lines don’t fit, they all shrink together.</p>' +
+      '<div class="lysec">Main lines, top to bottom</div>' +
+      L.order
+        .map((k, i) => {
+          const v = L.m[k];
+          return `<div class="lyrow${v.h ? " lyoff" : ""}"><span class="lyname">${Ht(LB_MAIN[k].t)}</span><div class="lyctl">${sz(k, v.sc)}<button type="button" class="lyb lybold" data-a="bold" data-k="${k}" aria-pressed="${v.b}" aria-label="Bold">B</button>${show(k, v.h)}<button type="button" class="lyb" data-a="mu" data-k="${k}" aria-label="Move up"${i ? "" : " disabled"}>↑</button><button type="button" class="lyb" data-a="md" data-k="${k}" aria-label="Move down"${i < n - 1 ? "" : " disabled"}>↓</button></div></div>`;
+        })
+        .join("") +
+      '<div class="lysec">Ribbon and sideways lines</div>' +
+      Object.keys(LB_SIDE)
+        .map((k) => {
+          const v = L.sd[k];
+          return `<div class="lyrow${v.h ? " lyoff" : ""}"><span class="lyname">${Ht(LB_SIDE[k].t)}</span><div class="lyctl">${sz("s:" + k, v.sc)}${show("s:" + k, v.h)}</div></div>`;
+        })
+        .join("") +
+      '<div class="lysec">QR code</div>' +
+      `<div class="lyrow${L.qr.h ? " lyoff" : ""}"><span class="lyname">Size</span><div class="lyctl"><div class="seg">${[["s", "Small"], ["m", "Medium"], ["l", "Large"]].map(([v, t]) => `<button type="button" data-a="qs" data-v="${v}" aria-pressed="${L.qr.size === v}">${t}</button>`).join("")}</div>${show("qr", L.qr.h)}</div></div>` +
+      `<div class="lyrow${L.qr.h ? " lyoff" : ""}"><span class="lyname">Position</span><div class="lyctl"><div class="seg">${[["top", "Top"], ["middle", "Middle"], ["bottom", "Bottom"]].map(([v, t]) => `<button type="button" data-a="qp" data-v="${v}" aria-pressed="${L.qr.pos === v}">${t}</button>`).join("")}</div></div></div>` +
+      '<div class="row" style="margin-top:12px"><button type="button" class="btn ghost sm" data-a="reset">Reset layout</button></div>';
+  }
+  box.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-a]");
+    if (!b || b.disabled) return;
+    const L = LLget(),
+      a = b.dataset.a,
+      k0 = b.dataset.k || "",
+      side = k0.startsWith("s:"),
+      k = side ? k0.slice(2) : k0,
+      it = "qr" === k ? L.qr : side ? L.sd[k] : L.m[k];
+    if ("reset" === a) return ((d.settings.labelLayout = null), s(), redraw(), draw(), Ft("Layout reset."));
+    if ("up" === a || "dn" === a) it.sc = Math.max(50, Math.min(160, it.sc + ("up" === a ? 10 : -10)));
+    else if ("bold" === a) it.b = !it.b;
+    else if ("hide" === a) it.h = !it.h;
+    else if ("mu" === a || "md" === a) {
+      const i = L.order.indexOf(k),
+        j = "mu" === a ? i - 1 : i + 1;
+      if (j < 0 || j >= L.order.length) return;
+      ((L.order[i] = L.order[j]), (L.order[j] = k));
+    } else if ("qs" === a) L.qr.size = b.dataset.v;
+    else if ("qp" === a) L.qr.pos = b.dataset.v;
+    save(L);
+  });
+  draw();
+};
 function Bn() {
   const e = Bt('<div class="stack"></div>'),
     t = d.batches.filter((e) => "finished" !== e.status);
@@ -3316,7 +3410,7 @@ function Bn() {
   let o = be(n.labelStock) || 0;
   const i = Bt('<div class="split"></div>'),
     l = Bt(
-      `<div class="stack">\n    <div class="panel"><div class="pbody">\n      <div class="labelcard" id="lcard">\n        <img id="limg" alt="Vial label preview" style="width:100%;max-width:472px;height:auto;border-radius:3px">\n      </div>\n      <p class="tiny muted" style="margin:12px 0 0">${be(n.bacMl) ? "This batch is mixed, so the label carries its concentration and units per dose." : "This batch is still powder, so the label says so instead of a concentration."}</p>\n    </div></div>\n    <div class="panel"><h2>Label stock</h2><div class="pbody">\n      <div class="chips" id="lb-stock">${Tn.map((e, t) => `<button class="chip" data-si="${t}" aria-pressed="${o === t ? "true" : "false"}">\n        <span class="chipdot" style="background:${e[1]}"></span><span class="chipdot" style="background:${e[2]}"></span>${Ht(e[0])}</button>`).join("")}</div>\n      <p class="tiny muted" style="margin:12px 0 0">Preview only. The file you download is always black on white — a thermal printer decides per dot whether to lay ribbon down and cannot know what colour is on the spool, so gold on black and black on silver print from the same image.</p>\n      <p class="tiny muted" style="margin:8px 0 0">40 × 20 mm at 300 dpi — 472×236 pixels. Black and white only.</p>\n      <div class="row" style="margin-top:14px">\n        <button class="btn" id="lb-share" hidden>Save to Photos</button>\n        <button class="btn" id="lb-png">Download PNG</button>\n        <button class="btn ghost" id="lb-print">Print</button></div>\n      <p class="tiny muted" style="margin:8px 0 0" id="lb-hint">You can also press and hold the label to save it.</p>\n      <div class="row" style="margin-top:14px"><button class="btn" id="lb-xlsx">Excel for Niimbot</button></div>\n      <p class="tiny muted" style="margin:8px 0 0">One row per vial you have in stock, one column per line on the label${COMMUNITY ? "" : ", plus the CoA link for the QR code"}. In Niimbot, link each text box in your template to a column, then load this file and every row prints as its own label. Your layout stays fully editable in Niimbot.</p>\n      <details class="tiny muted" style="margin:8px 0 0"><summary style="cursor:pointer">How to set up the Niimbot template</summary><ol style="margin:8px 0 0;padding-left:18px">\n        <li>Tap <b>Excel for Niimbot</b>. On a phone, choose <b>Save to Files</b>.</li>\n        <li>In the Niimbot app, open your vial template, tap <b>Data source</b> (Excel), then <b>Link data source</b> and pick the file.</li>\n        <li>Tap each text box and link it to the matching column (Compound, Strength, Bottom bar and so on)${COMMUNITY ? "" : ". Link the QR code element to <b>CoA QR</b>"}.</li>\n        <li>Save the template. Next time, just link the new file — the boxes stay where you put them.</li>\n        <li>Pick the rows you want and print.</li></ol></details>\n    </div></div></div>`,
+      `<div class="stack">\n    <div class="panel${COMMUNITY ? "" : " lbsticky"}"><div class="pbody">\n      <div class="labelcard" id="lcard">\n        <img id="limg" alt="Vial label preview" style="width:100%;max-width:472px;height:auto;border-radius:3px">\n      </div>\n      <p class="tiny muted" style="margin:12px 0 0">${be(n.bacMl) ? "This batch is mixed, so the label carries its concentration and units per dose." : "This batch is still powder, so the label says so instead of a concentration."}</p>\n    </div></div>${COMMUNITY ? "" : `<div class="panel"><h2>Layout<button type="button" class="btn ${r.lyOpen ? "" : "ghost "}sm" id="lb-laytog">${r.lyOpen ? "Done" : "Edit layout"}</button></h2><div class="pbody" id="lb-lay"${r.lyOpen ? "" : " hidden"}></div></div>`}\n    <div class="panel"><h2>Label stock</h2><div class="pbody">\n      <div class="chips" id="lb-stock">${Tn.map((e, t) => `<button class="chip" data-si="${t}" aria-pressed="${o === t ? "true" : "false"}">\n        <span class="chipdot" style="background:${e[1]}"></span><span class="chipdot" style="background:${e[2]}"></span>${Ht(e[0])}</button>`).join("")}</div>\n      <p class="tiny muted" style="margin:12px 0 0">Preview only. The file you download is always black on white — a thermal printer decides per dot whether to lay ribbon down and cannot know what colour is on the spool, so gold on black and black on silver print from the same image.</p>\n      <p class="tiny muted" style="margin:8px 0 0">40 × 20 mm at 300 dpi — 472×236 pixels. Black and white only.</p>\n      <div class="row" style="margin-top:14px">\n        <button class="btn" id="lb-share" hidden>Save to Photos</button>\n        <button class="btn" id="lb-png">Download PNG</button>\n        <button class="btn ghost" id="lb-print">Print</button></div>\n      <p class="tiny muted" style="margin:8px 0 0" id="lb-hint">You can also press and hold the label to save it.</p>\n      <div class="row" style="margin-top:14px"><button class="btn" id="lb-xlsx">Excel for Niimbot</button></div>\n      <p class="tiny muted" style="margin:8px 0 0">One row per vial you have in stock, one column per line on the label${COMMUNITY ? "" : ", plus the CoA link for the QR code"}. In Niimbot, link each text box in your template to a column, then load this file and every row prints as its own label. Your layout stays fully editable in Niimbot.</p>\n      <details class="tiny muted" style="margin:8px 0 0"><summary style="cursor:pointer">How to set up the Niimbot template</summary><ol style="margin:8px 0 0;padding-left:18px">\n        <li>Tap <b>Excel for Niimbot</b>. On a phone, choose <b>Save to Files</b>.</li>\n        <li>In the Niimbot app, open your vial template, tap <b>Data source</b> (Excel), then <b>Link data source</b> and pick the file.</li>\n        <li>Tap each text box and link it to the matching column (Compound, Strength, Bottom bar and so on)${COMMUNITY ? "" : ". Link the QR code element to <b>CoA QR</b>"}.</li>\n        <li>Save the template. Next time, just link the new file — the boxes stay where you put them.</li>\n        <li>Pick the rows you want and print.</li></ol></details>\n    </div></div></div>`,
     ),
     c = Bt('<div class="panel"><h2>What is printed</h2><div class="pbody" id="lf2"></div></div>');
   (i.appendChild(l), i.appendChild(c), e.appendChild(i));
@@ -3382,6 +3476,14 @@ function Bn() {
           m());
       }),
     ));
+  COMMUNITY || LyPanel(l.querySelector("#lb-lay"), m);
+  COMMUNITY ||
+    l.querySelector("#lb-laytog").addEventListener("click", (e) => {
+      r.lyOpen = !r.lyOpen;
+      l.querySelector("#lb-lay").hidden = !r.lyOpen;
+      e.target.textContent = r.lyOpen ? "Done" : "Edit layout";
+      e.target.classList.toggle("ghost", !r.lyOpen);
+    });
   const g = () => {
       const e = document.createElement("canvas");
       On(e, a, "#FFFFFF", "#000000");

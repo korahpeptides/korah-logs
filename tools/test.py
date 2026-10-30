@@ -105,6 +105,28 @@ with sync_playwright() as pw:
                 check(f"{tag}: Niimbot xlsx row carries the label text", row["Compound"] == "Retatrutide" and row["Strength"] == "10MG/2ML", row)
                 if variant == "personal":
                     check(f"{tag}: Niimbot xlsx CoA link from lot", row["CoA QR"] == "https://coa.korahpeptides.com/KP-0007.pdf", row.get("CoA QR"))
+            # Layout panel: personal only; changes save to settings and redraw the label; reset restores
+            has_lay = pg.evaluate("!!document.querySelector('#lb-lay')")
+            check(f"{tag}: label Layout panel only in personal", has_lay == (variant == "personal"))
+            if variant == "personal":
+                before = pg.evaluate("document.querySelector('#limg').src")
+                check(f"{tag}: layout starts collapsed", pg.evaluate("document.querySelector('#lb-lay').hidden"))
+                pg.click("#lb-laytog")
+                pg.click("#lb-lay [data-a=bold][data-k=name]")
+                pg.click("#lb-lay [data-a=md][data-k=name]")
+                pg.click("#lb-lay [data-a=up][data-k=bottom]")
+                pg.click("#lb-lay [data-a=hide][data-k='s:small']")
+                pg.click("#lb-lay [data-a=qp][data-v=top]")
+                pg.wait_for_timeout(50)
+                L = pg.evaluate("d.settings.labelLayout")
+                ok = L["order"][:2] == ["under", "name"] and L["m"]["name"]["b"] is False and L["m"]["bottom"]["sc"] == 110 and L["sd"]["small"]["h"] and L["qr"]["pos"] == "top"
+                check(f"{tag}: layout changes saved", ok, L)
+                check(f"{tag}: layout changes redraw the label", pg.evaluate("document.querySelector('#limg').src") != before)
+                for _ in range(20): pg.evaluate("(()=>{const b=document.querySelector('#lb-lay [data-a=up][data-k=strength]'); b && !b.disabled && b.click()})()")
+                check(f"{tag}: size capped at 160%", pg.evaluate("d.settings.labelLayout.m.strength.sc") == 160)
+                pg.click("#lb-lay [data-a=reset]")
+                pg.wait_for_timeout(50)
+                check(f"{tag}: reset layout", pg.evaluate("d.settings.labelLayout") is None and pg.evaluate("document.querySelector('#limg').src") == before)
             pg.evaluate("r.tab='labs'; Ua(); labDrawForm('dr1')")
             lbl = pg.evaluate("document.querySelector('label[for=ld-st]').textContent")
             check(f"{tag}: draw form medication label", lbl == ("Statin / ezetimibe" if variant == "personal" else "Medications at the time"), lbl)
