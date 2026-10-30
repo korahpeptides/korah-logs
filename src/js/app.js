@@ -3203,7 +3203,7 @@ function LLget() {
     sd = {};
   keys.forEach((k) => {
     const v = (L.m && L.m[k]) || {};
-    m[k] = { sc: +v.sc || 100, b: "boolean" == typeof v.b ? v.b : LB_MAIN[k].b, h: !!v.h };
+    m[k] = { sc: +v.sc || 100, b: "boolean" == typeof v.b ? v.b : LB_MAIN[k].b, h: !!v.h, two: !!v.two };
   });
   Object.keys(LB_SIDE).forEach((k) => {
     const v = (L.sd && L.sd[k]) || {};
@@ -3284,14 +3284,34 @@ function On(e, t, n, a) {
     } catch (e) {}
   const c = r - i;
   // Main lines, top to bottom in the chosen order. If they don't fit, everything shrinks together.
+  // "2 lines": split at the word break that makes the longer half shortest ("Research Use Only" -> "Research" / "Use Only").
+  const split2 = (txt, w) => {
+    const ws = String(txt).trim().split(/\s+/);
+    if (ws.length < 2) return [txt];
+    s.font = `${w} 40px ${F}`;
+    let best = null;
+    for (let i = 1; i < ws.length; i++) {
+      const p = [ws.slice(0, i).join(" "), ws.slice(i).join(" ")],
+        mw = Math.max(s.measureText(p[0]).width, s.measureText(p[1]).width);
+      (!best || mw < best.mw) && (best = { p, mw });
+    }
+    return best.p;
+  };
   const items = L.order
     .filter((k) => t[k] && !L.m[k].h)
-    .map((k) => ({ k, sp: LB_MAIN[k], w: L.m[k].b ? "700" : "400" }));
+    .map((k) => {
+      const w = L.m[k].b ? "700" : "400";
+      return { k, sp: LB_MAIN[k], w, ln: L.m[k].two ? split2(t[k], w) : [t[k]] };
+    });
   const measure = (f) => {
     let H = 0;
     items.forEach((x) => {
-      ((x.px = o(t[x.k], x.sp.bar ? c - 16 : c, (x.sp.px * L.m[x.k].sc * f) / 100, x.w)),
-        (x.h = x.sp.bar ? x.px + 12 : x.px),
+      const start = (x.sp.px * L.m[x.k].sc * f) / 100,
+        wd = x.sp.bar ? c - 16 : c;
+      ((x.px = x.ln.reduce((mn, q) => Math.min(mn, o(q, wd, start, x.w)), 1e3)),
+        (x.lg = Math.round(x.px * 0.08)),
+        (x.th = x.ln.length * x.px + (x.ln.length - 1) * x.lg),
+        (x.h = x.sp.bar ? x.th + 12 : x.th),
         (H += x.h + x.sp.gap));
     });
     return H;
@@ -3304,17 +3324,13 @@ function On(e, t, n, a) {
     s.textAlign = "left";
     if (x.sp.bar) {
       const y = idx === items.length - 1 ? Math.max(u, 228 - x.h) : u;
-      (s.fillRect(i, y, c, x.h),
-        (s.fillStyle = n),
-        (s.font = `${x.w} ${x.px}px ${F}`),
-        (s.textBaseline = "middle"),
-        s.fillText(t[x.k], i + 8, y + x.h / 2 + 1),
-        (s.fillStyle = a),
-        (u = y + x.h + x.sp.gap));
+      (s.fillRect(i, y, c, x.h), (s.fillStyle = n), (s.font = `${x.w} ${x.px}px ${F}`), (s.textBaseline = "middle"));
+      const y0 = y + 6 + x.px / 2 + 1 + (x.h - 12 - x.th) / 2;
+      (x.ln.forEach((q, j) => s.fillText(q, i + 8, y0 + j * (x.px + x.lg))), (s.fillStyle = a), (u = y + x.h + x.sp.gap));
     } else
       ((s.font = `${x.w} ${x.px}px ${F}`),
         (s.textBaseline = "top"),
-        s.fillText(t[x.k], i, u),
+        x.ln.forEach((q, j) => s.fillText(q, i, u + j * (x.px + x.lg))),
         (u += x.h + x.sp.gap));
   });
 }
@@ -3336,7 +3352,7 @@ const LyPanel = COMMUNITY ? null : function (box, redraw) {
       L.order
         .map((k, i) => {
           const v = L.m[k];
-          return `<div class="lyrow${v.h ? " lyoff" : ""}"><span class="lyname">${Ht(LB_MAIN[k].t)}</span><div class="lyctl">${sz(k, v.sc)}<button type="button" class="lyb lybold" data-a="bold" data-k="${k}" aria-pressed="${v.b}" aria-label="Bold">B</button>${show(k, v.h)}<button type="button" class="lyb" data-a="mu" data-k="${k}" aria-label="Move up"${i ? "" : " disabled"}>↑</button><button type="button" class="lyb" data-a="md" data-k="${k}" aria-label="Move down"${i < n - 1 ? "" : " disabled"}>↓</button></div></div>`;
+          return `<div class="lyrow${v.h ? " lyoff" : ""}"><span class="lyname">${Ht(LB_MAIN[k].t)}</span><div class="lyctl">${sz(k, v.sc)}<button type="button" class="lyb lybold" data-a="bold" data-k="${k}" aria-pressed="${v.b}" aria-label="Bold">B</button><button type="button" class="lyb lytwo" data-a="two" data-k="${k}" aria-pressed="${v.two}" title="Split the words over two lines">2 lines</button>${show(k, v.h)}<button type="button" class="lyb" data-a="mu" data-k="${k}" aria-label="Move up"${i ? "" : " disabled"}>↑</button><button type="button" class="lyb" data-a="md" data-k="${k}" aria-label="Move down"${i < n - 1 ? "" : " disabled"}>↓</button></div></div>`;
         })
         .join("") +
       '<div class="lysec">Ribbon and sideways lines</div>' +
@@ -3363,6 +3379,7 @@ const LyPanel = COMMUNITY ? null : function (box, redraw) {
     if ("reset" === a) return ((d.settings.labelLayout = null), s(), redraw(), draw(), Ft("Layout reset."));
     if ("up" === a || "dn" === a) it.sc = Math.max(50, Math.min(160, it.sc + ("up" === a ? 10 : -10)));
     else if ("bold" === a) it.b = !it.b;
+    else if ("two" === a) it.two = !it.two;
     else if ("hide" === a) it.h = !it.h;
     else if ("mu" === a || "md" === a) {
       const i = L.order.indexOf(k),
@@ -3406,7 +3423,9 @@ function Bn() {
     ((r.labelId = e.target.value), Ua());
   });
   const n = qe(r.labelId),
-    a = Pn(n);
+    base = Pn(n),
+    // Typed-but-unsaved wording is kept in screen state, so a background sync redraw doesn't throw it away.
+    a = Object.assign({}, base, ((r.lbDraft || (r.lbDraft = {}))[n.id]) || {});
   let o = be(n.labelStock) || 0;
   const i = Bt('<div class="split"></div>'),
     l = Bt(
@@ -3445,6 +3464,11 @@ function Bn() {
       u.forEach(([e]) => {
         a[e] = c.querySelector("#lf-" + e).value;
       });
+      const dr = {};
+      (u.forEach(([e]) => {
+        a[e] !== base[e] && (dr[e] = a[e]);
+      }),
+        Object.keys(dr).length ? (r.lbDraft[n.id] = dr) : delete r.lbDraft[n.id]);
       const e = Tn[o];
       On(p, a, e[1], e[2]);
       try {
@@ -3546,6 +3570,7 @@ function Bn() {
         u.forEach(([e]) => {
           n.label[e] = a[e];
         }),
+        delete r.lbDraft[n.id],
         s(),
         Ft("Label saved to this vial."));
     }),
@@ -3561,7 +3586,7 @@ function Bn() {
         Ft("Wording saved as your default."));
     }),
     c.querySelector("#lb-reset").addEventListener("click", () => {
-      (delete n.label, s(), Ua(), Ft("Reset to the vial’s own values."));
+      (delete n.label, delete r.lbDraft[n.id], s(), Ua(), Ft("Reset to the vial’s own values."));
     }),
     document.fonts && document.fonts.ready && document.fonts.ready.then(m),
     setTimeout(m, 30),

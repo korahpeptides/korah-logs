@@ -124,6 +124,20 @@ with sync_playwright() as pw:
                 check(f"{tag}: layout changes redraw the label", pg.evaluate("document.querySelector('#limg').src") != before)
                 for _ in range(20): pg.evaluate("(()=>{const b=document.querySelector('#lb-lay [data-a=up][data-k=strength]'); b && !b.disabled && b.click()})()")
                 check(f"{tag}: size capped at 160%", pg.evaluate("d.settings.labelLayout.m.strength.sc") == 160)
+                # 2 lines on the bottom bar changes the drawing
+                b2 = pg.evaluate("document.querySelector('#limg').src")
+                pg.click("#lb-lay [data-a=two][data-k=bottom]")
+                pg.wait_for_timeout(50)
+                check(f"{tag}: 2 lines saved and redraws", pg.evaluate("d.settings.labelLayout.m.bottom.two") is True and pg.evaluate("document.querySelector('#limg').src") != b2)
+                # typed wording survives a background redraw (sync) while focus is elsewhere
+                pg.fill("#lf-bottom", "Research Use Only")
+                pg.evaluate("document.activeElement.blur(); Ua(1)")
+                check(f"{tag}: unsaved label wording survives a sync redraw", pg.evaluate("document.querySelector('#lf-bottom').value") == "Research Use Only")
+                pg.click("#lb-savebatch")
+                check(f"{tag}: saving clears the draft", pg.evaluate("!(r.lbDraft||{})[r.labelId] && d.batches[0].label.bottom") == "Research Use Only")
+                pg.click("#lb-reset")
+                pg.wait_for_timeout(50)
+                pg.click("#lb-laytog") if pg.evaluate("document.querySelector('#lb-lay').hidden") else None
                 pg.click("#lb-lay [data-a=reset]")
                 pg.wait_for_timeout(50)
                 check(f"{tag}: reset layout", pg.evaluate("d.settings.labelLayout") is None and pg.evaluate("document.querySelector('#limg').src") == before)
