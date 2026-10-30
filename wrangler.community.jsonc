@@ -1,11 +1,9 @@
-// Community tracker: app.korahpeptides.com. Deployed by Cloudflare on every push to main.
+// Community tracker (cpt): peptide-tracker.rdguindon.workers.dev. Deployed by Cloudflare on every push to main.
+// No korahpeptides.com address on purpose: deploys must keep working even if that domain goes away.
+// app.korahpeptides.com stays attached in the Cloudflare dashboard while the domain exists; it is no longer set here.
 {
   "name": "peptide-tracker",
   "compatibility_date": "2026-10-01",
   "assets": { "directory": "./dist/community" },
-  "workers_dev": false,
-  "routes": [
-    { "pattern": "app.korahpeptides.com", "custom_domain": true },
-    { "pattern": "public-peptide-tracker.korahpeptides.com", "custom_domain": true }
-  ]
+  "workers_dev": true
 }

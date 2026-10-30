@@ -1,8 +1,9 @@
-// Personal tracker: my.korahpeptides.com (sync on). Deployed by Cloudflare on every push to main.
+// Personal tracker (rpt): rickspeptidetracker.rdguindon.workers.dev (sync on). Deployed by Cloudflare on every push to main.
+// No korahpeptides.com address on purpose: deploys must keep working even if that domain goes away.
+// (Removing a route here does not detach a domain that is already attached; that is done in the dashboard.)
 {
   "name": "rickspeptidetracker",
   "compatibility_date": "2026-10-01",
   "assets": { "directory": "./dist/personal" },
-  "workers_dev": true,
-  "routes": [{ "pattern": "my.korahpeptides.com", "custom_domain": true }]
+  "workers_dev": true
 }

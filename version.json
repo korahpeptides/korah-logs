@@ -1,5 +1,5 @@
 {
-  "build": 72,
+  "build": 73,
   "date": "2026-10-29",
-  "note": "Labels: Excel for Niimbot \u2014 one row per vial to link to text boxes in a Niimbot template"
+  "note": "Both trackers deploy to their workers.dev addresses, independent of korahpeptides.com"
 }

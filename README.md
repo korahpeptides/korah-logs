@@ -1,6 +1,6 @@
 # Korah Logs
 
-The peptide tracker (personal build at my.korahpeptides.com, community build at app.korahpeptides.com) and the `protocol-ai` Worker behind its Insights tab.
+The peptide tracker (personal build "rpt" at rickspeptidetracker.rdguindon.workers.dev, community build "cpt" at peptide-tracker.rdguindon.workers.dev, also reachable at app.korahpeptides.com while that domain exists) and the `protocol-ai` Worker behind its Insights tab.
 
 ## How it works
 
@@ -17,10 +17,11 @@ The peptide tracker (personal build at my.korahpeptides.com, community build at 
 
 | Worker | Address | Build command | Deploy command |
 |---|---|---|---|
-| `rickspeptidetracker` | my.korahpeptides.com | `npm run build` | `npx wrangler deploy --config wrangler.personal.jsonc` |
-| `peptide-tracker` | app.korahpeptides.com | `npm run build` | `npx wrangler deploy --config wrangler.community.jsonc` |
+| `rickspeptidetracker` | rickspeptidetracker.rdguindon.workers.dev | `npm run build` | `npx wrangler deploy --config wrangler.personal.jsonc` |
+| `peptide-tracker` | peptide-tracker.rdguindon.workers.dev (+ app.korahpeptides.com, attached in the dashboard) | `npm run build` | `npx wrangler deploy --config wrangler.community.jsonc` |
 | `protocol-ai` | protocol-ai.rdguindon.workers.dev | (none) | `npx wrangler deploy --config wrangler.ai.jsonc` |
 
+- **Kept independent of korahpeptides.com.** The wrangler files set no custom domains, so deploys never depend on that domain. Don't add korahpeptides.com routes back to them.
 - **`protocol-ai` secrets** live in Cloudflare under Settings → Runtime → Variables and Secrets: `APP_KEY` (matches the access key typed into Insights) and `ANTHROPIC_API_KEY`. It only forwards the fields the app uses. It accepts `claude-haiku-5-5` (the default) or `claude-sonnet-5-5`, and caps the reply length.
 
 ## Before every push
