@@ -284,6 +284,49 @@ with sync_playwright() as pw:
                       const p = d.insights.filter(x=>x.kind==='protocol').map(x=>x.created);
                       return {n:p.length, min:Math.min(...p), max:Math.max(...p), lab:d.insights.some(x=>x.id==='L0')}; }""")
                     check(f"{tag}: Insights keeps the newest 10 of each kind", ic == {"n": 10, "min": 3, "max": 12, "lab": True}, ic)
+            if width == 1280:
+                # b78: absorption model
+                pk = pg.evaluate("""() => {
+                  const ke = Math.LN2/165, ka = KA(ke, 48); let best = 0, bh = 0;
+                  for (let h = 0; h <= 200; h += 0.1) { const v = AF(ke, ka, h); if (v > best) { best = v; bh = h; } }
+                  const flip = KA(Math.LN2/4, 30); let b2 = 0, h2 = 0;
+                  for (let h = 0; h <= 200; h += 0.1) { const v = AF(Math.LN2/4, flip, h); if (v > b2) { b2 = v; h2 = h; } }
+                  return {bh, h2, start: AF(ke, ka, 0), iv: AF(ke, Infinity, 0), peak: best,
+                    sema: TP({name:'Semaglutide', route:'SubQ'}), wegovy: TP({name:'Wegovy', route:'SubQ'}).src, reta: TP({name:'Retatrutide', route:'SubQ'}),
+                    bpc: TP({name:'BPC-157', route:'SubQ'}).h, own: TP({name:'Semaglutide', tPeak:'12'}), oral: TP({name:'X', route:'Oral'}).h};
+                }""")
+                check(f"{tag}: dose peaks at its time to peak (48 h)", abs(pk["bh"] - 48) < 0.3, pk)
+                check(f"{tag}: slow absorption (peak later than 1/ke) solved too", abs(pk["h2"] - 30) < 0.3, pk)
+                check(f"{tag}: nothing in the body at the moment of the shot; IV is instant", pk["start"] == 0 and pk["iv"] == 1, pk)
+                check(f"{tag}: semaglutide uses the published peak time", pk["sema"]["h"] == 48 and pk["sema"]["src"] == "published", pk)
+                check(f"{tag}: retatrutide marked as a rough guess (no published peak time)", pk["reta"]["src"] == "rough" and pk["reta"]["h"] == 24, pk)
+                check(f"{tag}: short-acting SubQ peptide gets a short rough peak time", pk["bpc"] == 0.5, pk)
+                check(f"{tag}: your own peak time wins", pk["own"]["h"] == 12 and pk["own"]["src"] == "yours", pk)
+                # b78: cached estimate matches a full recount, updates after a save, and the Today page is quick
+                ca = pg.evaluate("""() => {
+                  const keep = d.logs.slice(), T = Date.now();
+                  for (let i = 0; i < 3000; i++) d.logs.push({id:'z'+i, compoundId:'c2', date:ne(te(),-(i%300)), status:'taken', doseMg:1, route:'SubQ'});
+                  s();
+                  const c = Ce('c2'), ke = Math.LN2/HL(c), ka = KA(ke, TP(c,'SubQ').h); let ref = 0;
+                  for (const g of d.logs) { if (g.compoundId !== 'c2' || g.status !== 'taken') continue;
+                    const t0 = new Date(g.at || g.date+'T12:00').getTime(); if (t0 <= T) ref += be(g.doseMg)*AF(ke, ka, (T-t0)/36e5); }
+                  const v = Et('c2', T);
+                  r.tab = 'today'; const t1 = performance.now(); Ua(); const ms = performance.now() - t1;
+                  d.logs.push({id:'zz', compoundId:'c2', date:te(), at:new Date(T-36e5*24).toISOString(), status:'taken', doseMg:5, route:'SubQ'}); s();
+                  const v2 = Et('c2', T);
+                  d.logs = keep; s();
+                  return {rel: Math.abs(v-ref)/ref, ms, grew: v2 > v + 3};
+                }""")
+                check(f"{tag}: cached level matches a full recount", ca["rel"] < 1e-6, ca)
+                check(f"{tag}: level updates after a new shot is saved", ca["grew"], ca)
+                check(f"{tag}: Today page draws in under 1 s with 3,000 shots", ca["ms"] < 1000, ca)
+                print(f"     Today page with 3,000 shots: {ca['ms']:.0f} ms")
+                # b78: compound form has Time to peak, and it saves
+                tp = pg.evaluate("""() => { $a('c2'); const m = Ot('#modal'); const f = m.querySelector('#c-tp');
+                  const ph = f.placeholder, hint = f.parentNode.querySelector('.hint').textContent;
+                  f.value = '30'; m.querySelector('#c-save').click(); const saved = Ce('c2').tPeak, src = TP(Ce('c2')).src;
+                  Ce('c2').tPeak = ''; s(); return {ph, hint, saved, src}; }""")
+                check(f"{tag}: compound form shows and saves Time to peak", tp["ph"] == "24" and "rough" in tp["hint"] and tp["saved"] == "30" and tp["src"] == "yours", tp)
             check(f"{tag}: no page errors", not errs, errs)
             pg.close()
     br.close()
@@ -294,6 +337,7 @@ check("analytics tag only in community", ("cloudflareinsights" in html["communit
 check("copyright notice kept in both", all(h.count("© 2026 Korah Peptides") >= 3 for h in html.values()))
 check("label QR library bundled, not loaded from the internet", "cdnjs" not in html["personal"] and "var qrcode" in html["personal"].replace("var qrcode=", "var qrcode"))
 check("password never saved on the device", all('setItem("protocol:pw"' not in h for h in html.values()))
+check("passphrase required on both builds", all("encryption, required" in h and "Leave blank to store it unencrypted" not in h and "Repeat passphrase" in h for h in html.values()))
 
 # b77: offline. Serve each build from a local web address, let the offline copy install, go offline, reopen.
 import threading, http.server, functools

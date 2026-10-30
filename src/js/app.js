@@ -38,9 +38,11 @@ const e = "protocol:v2",
     };
   })();
 let n = null,
-  a = !1;
+  a = !1,
+  DSV = 0; // b78: bumped on every save; the level estimate's dose cache (DS) rebuilds when it changes
 function s() {
-  (clearTimeout(n),
+  (DSV++,
+    clearTimeout(n),
     (n = setTimeout(async () => {
       try {
         (ta(), await t.set(JSON.stringify(d)), wa());
@@ -1273,21 +1275,91 @@ function HL(c) {
   const r = u.find((x) => y(x[0]) === y(c.name));
   return r ? be(r[1]) : 0;
 }
+// b78: level estimate with absorption. Each dose is absorbed over its time to peak, then cleared by its
+// half-life (one-compartment model, first-order absorption):
+//   amount(h) = dose × ka/(ka−ke) × (e^(−ke·h) − e^(−ka·h)),  ke = ln2 / half-life
+// ka is solved from the time to peak: tpeak = ln(ka/ke)/(ka−ke). No time to peak (IV) means no delay.
+// Time to peak, in order: the compound's own setting, a published figure (TPK), a rough figure by route (TPD).
+const TPK = new Map(
+  [
+    ["Semaglutide", 48, "label: 1–3 days"],
+    ["Tirzepatide", 24, "label: median 24 h (8–72 h)"],
+    ["Liraglutide", 10, "label: 8–12 h"],
+    ["Cagrilintide", 48, "phase 1b trial: median 24–72 h"],
+  ].map((x) => [y(x[0]), x]),
+);
+function TPD(route, hl) {
+  return "IV" === route ? 0 : "Oral" === route ? 1.5 : "Nasal" === route ? 0.5 : "Topical" === route ? 4 : hl >= 24 ? 24 : 0.5;
+}
+// {h: hours to peak, src: "yours" | "published" | "rough", note}
+function TP(c, route) {
+  const r = route || (c && c.route) || "SubQ";
+  if (!c || "IV" === r) return { h: 0, src: "published", note: "IV: no absorption delay" };
+  const v = be(c.tPeak);
+  if (v > 0) return { h: v, src: "yours", note: "your setting" };
+  const k = TPK.get(y(c.name));
+  if (k) return { h: k[1], src: "published", note: k[2] };
+  return { h: TPD(r, HL(c)), src: "rough", note: "rough guess for " + r + (HL(c) >= 24 && /SubQ|IM/.test(r) ? ", long-acting" : "") };
+}
+const KAC = new Map();
+function KA(ke, tp) {
+  if (!(tp > 0)) return 1 / 0;
+  const k = ke + "|" + tp;
+  if (KAC.has(k)) return KAC.get(k);
+  const f = (ka) => (Math.abs(ka - ke) < 1e-12 ? 1 / ke : Math.log(ka / ke) / (ka - ke));
+  let lo = 1e-7,
+    hi = 1e4;
+  for (let i = 0; i < 80; i++) {
+    const m = Math.sqrt(lo * hi);
+    f(m) > tp ? (lo = m) : (hi = m);
+  }
+  const r = Math.sqrt(lo * hi);
+  return (KAC.set(k, r), r);
+}
+// fraction of one dose in the body h hours after it was taken
+function AF(ke, ka, h) {
+  if (h < 0) return 0;
+  if (!isFinite(ka)) return Math.exp(-ke * h);
+  if (Math.abs(ka - ke) < 1e-9 * ke) return ke * h * Math.exp(-ke * h);
+  return (ka / (ka - ke)) * (Math.exp(-ke * h) - Math.exp(-ka * h));
+}
+// taken doses of one compound as [time ms, dose, ka, ignore-after hours], oldest first; rebuilt after each save
+let DSC = null;
+function DS(cid) {
+  (DSC && DSC.v === DSV && DSC.d === d && DSC.logs === d.logs) || (DSC = { v: DSV, d: d, logs: d.logs, m: new Map() });
+  let r = DSC.m.get(cid);
+  if (r) return r;
+  r = [];
+  const c = Ce(cid),
+    hl = c ? HL(c) : 0;
+  if (hl) {
+    const ke = Math.LN2 / hl;
+    for (const g of d.logs) {
+      if (g.compoundId !== cid || "taken" !== g.status) continue;
+      const ka = KA(ke, TP(c, g.route).h);
+      r.push([new Date(g.at || g.date + "T12:00").getTime(), be(g.doseMg), ka, 30 * Math.max(hl, isFinite(ka) ? Math.LN2 / ka : 0)]);
+    }
+    r.sort((a, b) => a[0] - b[0]);
+  }
+  return (DSC.m.set(cid, r), r);
+}
 function Et(e, t) {
   const n = Ce(e),
     a = n ? HL(n) : 0;
   if (!a) return null;
+  const ke = Math.LN2 / a;
   let s = 0;
-  for (const n of d.logs) {
-    if (n.compoundId !== e || "taken" !== n.status) continue;
-    const o = new Date(n.at || n.date + "T12:00").getTime();
-    o <= t && (s += be(n.doseMg) * Math.pow(0.5, (t - o) / 36e5 / a));
+  for (const [o, dose, ka, far] of DS(e)) {
+    if (o > t) break;
+    const h = (t - o) / 36e5;
+    h < far && (s += dose * AF(ke, ka, h));
   }
   return s;
 }
+// highest estimated level over the last `t` days (3-hour steps), used as the bar's full width
 function Tt(e, t = 30) {
   const n = Ce(e);
-  if (!n || !HL(n)) return 0;
+  if (!n || !HL(n) || !DS(e).length) return 0;
   let a = 0;
   const s = Date.now();
   for (let n = 24 * t; n >= 0; n -= 3) {
@@ -1634,7 +1706,7 @@ function rn() {
     }
     (t.appendChild(
       Bt(
-        '<p class="tiny muted" style="margin:0">Exponential decay from your logged shots, drawn against each compound\'s recent peak. An estimate, not a clinical figure.</p>',
+        '<p class="tiny muted" style="margin:0">Worked out from your logged shots: each is absorbed over its time to peak, then cleared by its half-life. The bar is against each compound\'s highest level in the last 30 days. An estimate, not a clinical figure.</p>',
       ),
     ),
       p.appendChild(e));
@@ -1842,10 +1914,22 @@ function pn() {
       a = new Date(e.when).getTime() || Date.now();
     let s = "";
     if (n) {
-      const o = Et(e.compoundId, a) || 0,
-        i = o + e._doseMg,
-        l = (e) => i * Math.pow(0.5, e / n);
-      s = `<div class="panel"><h2>Level in body<span class="mono tiny">${Ht($e(o, t))} now</span></h2><div class="pbody">\n        <div class="big-read">${Ht($e(i, t))}<small> right after this shot</small></div>\n        <div class="bar" style="margin:10px 0 12px"><i style="width:100%;background:${t.color}"></i></div>\n        <div class="kv"><span>In 24 h</span><b>${Ht($e(l(24), t))}</b></div>\n        <div class="kv"><span>In 72 h</span><b>${Ht($e(l(72), t))}</b></div>\n        <div class="kv"><span>As a multiple of this dose</span><b>${e._doseMg ? fe(i / e._doseMg, 2) : "—"}×</b></div>\n        <p class="tiny muted" style="margin:10px 0 0">Exponential decay from each dose, ignoring absorption time. An estimate, not a clinical figure.</p>\n      </div></div>`;
+      // b78: this shot is absorbed over its time to peak; earlier shots carry on along their own curves.
+      const P = TP(t, e.route),
+        ke = Math.LN2 / n,
+        kn = KA(ke, P.h),
+        D = e._doseMg || 0,
+        o = Et(e.compoundId, a) || 0,
+        L = (h) => (Et(e.compoundId, a + 36e5 * h) || 0) + D * AF(ke, kn, h);
+      let pk = o,
+        ph = 0;
+      for (let x = 0.25; x <= 168; x += x < 24 ? 0.25 : 1) {
+        const v = L(x);
+        v > pk && ((pk = v), (ph = x));
+      }
+      const HH = (h) => (h < 1 ? Math.round(60 * h) + " min" : h < 48 ? fe(h, h < 10 ? 1 : 0) + " h" : fe(h / 24, 1) + " days"),
+        src = "yours" === P.src ? "your setting" : "published" === P.src ? P.note : "a rough guess by route; set your own on the compound";
+      s = `<div class="panel"><h2>Level in body<span class="mono tiny">${Ht($e(o, t))} now</span></h2><div class="pbody">\n        <div class="big-read">${Ht($e(pk, t))}<small> ${ph ? "at its highest, about " + Ht(HH(ph)) + " after this shot" : "right after this shot"}</small></div>\n        <div class="bar" style="margin:10px 0 12px"><i style="width:100%;background:${t.color}"></i></div>\n        <div class="kv"><span>In 24 h</span><b>${Ht($e(L(24), t))}</b></div>\n        <div class="kv"><span>In 72 h</span><b>${Ht($e(L(72), t))}</b></div>\n        <div class="kv"><span>Highest, as a multiple of this dose</span><b>${D ? fe(pk / D, 2) : "—"}×</b></div>\n        <p class="tiny muted" style="margin:10px 0 0">Each shot is absorbed over about ${Ht(HH(P.h || 0))} to its peak (${Ht(src)}), then cleared by a ${Ht(fe(n, 1))} h half-life. An estimate, not a clinical figure.</p>\n      </div></div>`;
     }
     i.innerHTML =
       s +
@@ -4004,7 +4088,7 @@ async function fa(e) {
     const a = await ma(),
       s = ya();
     if (!s) throw new Error("Sign in first.");
-    if (Wn && n.length < 8) throw new Error("Set a passphrase of at least 8 characters first.");
+    if (n.length < 8) throw new Error("Set a passphrase of at least 8 characters in Settings → Sync first.");
     const o = a.fs.doc(a.db, "logs", s.uid),
       i = await a.fs.getDoc(o);
     ta();
@@ -4060,7 +4144,7 @@ function Sa() {
   const e = ha(),
     n = "undefined" != typeof localStorage && localStorage.getItem("protocol:pass"),
     a = Bt(
-      `<div class="panel"><h2>Sync between devices<span id="sync-status"></span></h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 12px">${Wn ? "Optional. Off by default — everything works without it. Turn it on to keep your phone and your computer level: sign in with the same email, password and passphrase on both. Your log is scrambled in this browser with your passphrase before it uploads, so what is stored is unreadable to anyone else, including whoever runs this site. Logging on one device does not wipe the other." : "Optional. Off by default — everything works without it. When it is on, your log is merged\n      through your own Firebase project so the phone and the PC stay level. Records are matched by id and the newer edit wins, so logging\n      on one device does not wipe the other."}</p>\n    <label class="check"><input type="checkbox" id="sy-on" ${e.enabled ? "checked" : ""}><span>Turn sync on</span></label>\n    <div id="sy-body" ${e.enabled ? "" : "hidden"}>\n      ${Wn ? "" : `<div class="field"><label for="sy-cfg">Firebase config</label>\n        <textarea id="sy-cfg" style="min-height:110px;font-family:var(--mono);font-size:12px" placeholder="Paste the whole firebaseConfig block from the Firebase console">${Ht(e.config)}</textarea>\n        <span class="hint">Project settings › Your apps › the web app › Config. Paste it all; the fields are picked out for you.</span></div>`}\n      <div class="fgrid">\n        <div class="field"><label for="sy-em">Email</label><input id="sy-em" type="email" autocomplete="username" value="${Ht(e.email)}"></div>\n        <div class="field"><label for="sy-pw">Password</label>\n          <input id="sy-pw" type="password" autocomplete="current-password" placeholder="${ua() ? "•••••• saved on this device" : "At least 6 characters"}"></div>\n      </div>\n      <label class="check"><input type="checkbox" id="sy-rem" ${!1 !== e.remember ? "checked" : ""}>\n        <span>Stay signed in on this device</span></label>\n      <div class="field"><label for="sy-ph">Passphrase (encryption${Wn ? ", required" : ""})</label>\n        <input id="sy-ph" type="password" autocomplete="off" placeholder="${n ? "•••••• already set on this device" : Wn ? "At least 8 characters" : "Leave blank to store it unencrypted"}">\n        <span class="hint">${Wn ? "Scrambles the log in your browser before it uploads. Use the same passphrase on both devices. <b>There is no way to recover it.</b> If you lose it, the only way back is to start the cloud copy over from a device that still has your data. Write it down somewhere real." : "Scrambles the log in your browser before it uploads, so the database holds text nobody can read — not Google, not me.\n          Use the same passphrase on both devices. <b>There is no way to recover it.</b> Lose it and the synced copy is gone for good, so write it down somewhere real."}</span></div>\n      ${Wn ? '<div class="field"><label for="sy-ph2">Repeat passphrase (new accounts only)</label>\n        <input id="sy-ph2" type="password" autocomplete="off"></div>' : ""}\n      <div class="row" style="margin-bottom:10px">\n        <button class="btn" id="sy-in">Sign in</button>\n        <button class="btn ghost" id="sy-new">Create account</button>\n        <button class="btn ghost" id="sy-go">Sync now</button>\n        <button class="btn ghost" id="sy-out">Sign out</button>\n        <button class="btn ghost" id="sy-fp">Forgot password</button></div>\n      <label class="check" style="margin:0"><input type="checkbox" id="sy-auto" ${!1 !== e.auto ? "checked" : ""}><span>Sync automatically a few seconds after a change</span></label>\n      ${Wn ? '<p class="tiny muted" style="margin:12px 0 0">Lost your passphrase? Type a new one above, then\n        <button class="btn ghost sm" id="sy-reset">Replace the cloud copy with this device</button>\n        The old cloud copy is gone for good; this device’s data becomes the new one.</p>' : ""}\n    </div></div></div>`,
+      `<div class="panel"><h2>Sync between devices<span id="sync-status"></span></h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 12px">${Wn ? "Optional. Off by default — everything works without it. Turn it on to keep your phone and your computer level: sign in with the same email, password and passphrase on both. Your log is scrambled in this browser with your passphrase before it uploads, so what is stored is unreadable to anyone else, including whoever runs this site. Logging on one device does not wipe the other." : "Optional. Off by default — everything works without it. When it is on, your log is merged\n      through your own Firebase project so the phone and the PC stay level. Records are matched by id and the newer edit wins, so logging\n      on one device does not wipe the other."}</p>\n    <label class="check"><input type="checkbox" id="sy-on" ${e.enabled ? "checked" : ""}><span>Turn sync on</span></label>\n    <div id="sy-body" ${e.enabled ? "" : "hidden"}>\n      ${Wn ? "" : `<div class="field"><label for="sy-cfg">Firebase config</label>\n        <textarea id="sy-cfg" style="min-height:110px;font-family:var(--mono);font-size:12px" placeholder="Paste the whole firebaseConfig block from the Firebase console">${Ht(e.config)}</textarea>\n        <span class="hint">Project settings › Your apps › the web app › Config. Paste it all; the fields are picked out for you.</span></div>`}\n      <div class="fgrid">\n        <div class="field"><label for="sy-em">Email</label><input id="sy-em" type="email" autocomplete="username" value="${Ht(e.email)}"></div>\n        <div class="field"><label for="sy-pw">Password</label>\n          <input id="sy-pw" type="password" autocomplete="current-password" placeholder="${ua() ? "•••••• saved on this device" : "At least 6 characters"}"></div>\n      </div>\n      <label class="check"><input type="checkbox" id="sy-rem" ${!1 !== e.remember ? "checked" : ""}>\n        <span>Stay signed in on this device</span></label>\n      <div class="field"><label for="sy-ph">Passphrase (encryption, required)</label>\n        <input id="sy-ph" type="password" autocomplete="off" placeholder="${n ? "•••••• already set on this device" : "At least 8 characters"}">\n        <span class="hint">${Wn ? "Scrambles the log in your browser before it uploads. Use the same passphrase on both devices. <b>There is no way to recover it.</b> If you lose it, the only way back is to start the cloud copy over from a device that still has your data. Write it down somewhere real." : "Scrambles the log in your browser before it uploads, so the database holds text nobody can read — not Google, not me.\n          Use the same passphrase on both devices. <b>There is no way to recover it.</b> Lose it and the synced copy is gone for good, so write it down somewhere real."}</span></div>\n      ${jn ? '<div class="field"><label for="sy-ph2">Repeat passphrase (new accounts only)</label>\n        <input id="sy-ph2" type="password" autocomplete="off"></div>' : ""}\n      <div class="row" style="margin-bottom:10px">\n        <button class="btn" id="sy-in">Sign in</button>\n        <button class="btn ghost" id="sy-new">Create account</button>\n        <button class="btn ghost" id="sy-go">Sync now</button>\n        <button class="btn ghost" id="sy-out">Sign out</button>\n        <button class="btn ghost" id="sy-fp">Forgot password</button></div>\n      <label class="check" style="margin:0"><input type="checkbox" id="sy-auto" ${!1 !== e.auto ? "checked" : ""}><span>Sync automatically a few seconds after a change</span></label>\n      ${jn ? '<p class="tiny muted" style="margin:12px 0 0">Lost your passphrase? Type a new one above, then\n        <button class="btn ghost sm" id="sy-reset">Replace the cloud copy with this device</button>\n        The old cloud copy is gone for good; this device’s data becomes the new one.</p>' : ""}\n    </div></div></div>`,
     ),
     o = a.querySelector("#sy-on");
   o.addEventListener("change", () => {
@@ -4092,7 +4176,8 @@ function Sa() {
         s = localStorage.getItem("protocol:pass");
       } catch (e) {}
     if (t && n) {
-      if (Wn) {
+      // b78: a passphrase is required on both builds (before b78 the personal build allowed none).
+      {
         if (!s) return void Ft("Choose a passphrase of at least 8 characters.");
         if (s.length < 8) return void Ft("The passphrase needs at least 8 characters.");
         const t = a.querySelector("#sy-ph").value,
@@ -4277,7 +4362,7 @@ function $a(e) {
     : { id: ve(), name: "", halfLife: "", route: "SubQ", color: c[d.compounds.length % c.length], notes: "" };
   Vt(
     e ? "Edit compound" : "Add a compound",
-    `\n    <datalist id="lib3">${u.map((e) => `<option value="${Ht(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="c-n">Name</label><input id="c-n" list="lib3" value="${Ht(t.name)}"></div>\n    <div class="fgrid3">\n      <div class="field"><label for="c-h">Half-life (hours)</label><input id="c-h" type="number" step="any" min="0" value="${Ht(t.halfLife)}">\n        <span class="hint">Leave blank to skip the decay curve.</span></div>\n      <div class="field"><label for="c-base">Measured in</label><select id="c-base">\n        <option value="mg"${"iu" !== t.base ? " selected" : ""}>mg / mcg</option>\n        <option value="iu"${"iu" === t.base ? " selected" : ""}>IU</option></select>\n        <span class="hint">IU compounds stay in IU everywhere — nothing is converted.</span></div>\n      <div class="field"><label for="c-r">Usual route</label><select id="c-r">\n        ${["SubQ", "IM", "Oral", "Nasal", "Topical"].map((e) => `<option${t.route === e ? " selected" : ""}>${e}</option>`).join("")}</select></div>\n      <div class="field"><label for="c-col">Colour</label><select id="c-col">\n        ${c.map((e) => `<option value="${e}"${t.color === e ? " selected" : ""}>${e}</option>`).join("")}</select></div></div>\n    <div class="field"><label for="c-notes">Notes</label><textarea id="c-notes">${Ht(t.notes)}</textarea></div>`,
+    `\n    <datalist id="lib3">${u.map((e) => `<option value="${Ht(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="c-n">Name</label><input id="c-n" list="lib3" value="${Ht(t.name)}"></div>\n    <div class="fgrid3">\n      <div class="field"><label for="c-h">Half-life (hours)</label><input id="c-h" type="number" step="any" min="0" value="${Ht(t.halfLife)}">\n        <span class="hint">Leave blank to skip the decay curve.</span></div>\n      <div class="field"><label for="c-tp">Time to peak (hours)</label><input id="c-tp" type="number" step="any" min="0" value="${Ht(t.tPeak || "")}" placeholder="${Ht(fe(TP(Object.assign({}, t, { tPeak: "" })).h, 1))}">\n        <span class="hint">How long after a shot it is highest in the blood. Blank uses ${Ht(TP(Object.assign({}, t, { tPeak: "" })).note)}.</span></div>\n      <div class="field"><label for="c-base">Measured in</label><select id="c-base">\n        <option value="mg"${"iu" !== t.base ? " selected" : ""}>mg / mcg</option>\n        <option value="iu"${"iu" === t.base ? " selected" : ""}>IU</option></select>\n        <span class="hint">IU compounds stay in IU everywhere — nothing is converted.</span></div>\n      <div class="field"><label for="c-r">Usual route</label><select id="c-r">\n        ${["SubQ", "IM", "Oral", "Nasal", "Topical"].map((e) => `<option${t.route === e ? " selected" : ""}>${e}</option>`).join("")}</select></div>\n      <div class="field"><label for="c-col">Colour</label><select id="c-col">\n        ${c.map((e) => `<option value="${e}"${t.color === e ? " selected" : ""}>${e}</option>`).join("")}</select></div></div>\n    <div class="field"><label for="c-notes">Notes</label><textarea id="c-notes">${Ht(t.notes)}</textarea></div>`,
     (e ? '<button class="btn danger" id="c-del">Delete</button>' : "") +
       '\n     <button class="btn ghost" data-close>Cancel</button><button class="btn" id="c-save">Save</button>',
   );
@@ -4290,6 +4375,7 @@ function $a(e) {
     n.querySelector("#c-save").addEventListener("click", () => {
       if (((t.name = n.querySelector("#c-n").value.trim()), !t.name)) return void Ft("Give it a name.");
       ((t.halfLife = n.querySelector("#c-h").value),
+        (t.tPeak = n.querySelector("#c-tp").value),
         (t.route = n.querySelector("#c-r").value),
         (t.base = n.querySelector("#c-base").value),
         (t.color = n.querySelector("#c-col").value),

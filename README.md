@@ -56,6 +56,8 @@ npm test        # builds both files, runs tools/test.py on both (headless) and t
 11. Insights keeps the newest 10 reports of each kind (`INS_KEEP`).
 12. A background redraw (`Ua(1)`) keeps typed-but-unsaved boxes (`UF`/`UR`) and is skipped when a sync brought nothing new (`SG`). Boxes are drawn with `value="…"` from saved data so this works; a box filled by code after drawing is left alone.
 13. The sign-in password is never stored. Firebase keeps the session; `va()` waits for it to restore.
+14. Level estimate (b78): each dose is absorbed over its time to peak, then cleared by its half-life (`AF`, `KA`). Time to peak comes from the compound's own setting (`tPeak`), then published figures (`TPK`), then a rough figure by route (`TPD`). Add to `TPK` only with a human source, noted in the entry. Doses are cached per compound in `DS()`; the cache rebuilds after every `s()` (`DSV`), so anything that changes logs or compounds must go through `s()`.
+15. A sync passphrase (8+ characters) is required on both builds (b78). A personal cloud copy stored before b78 without one is read, then uploaded encrypted.
 8. Sync switches on only at `my.korahpeptides.com` or a `rickspeptidetracker.*` address (`Vn`). The community build has its own shared Firebase (`Rn`, `Wn`).
 
 ## Glossary for `src/js/app.js`
@@ -94,6 +96,8 @@ npm test        # builds both files, runs tools/test.py on both (headless) and t
 | `la()` / `da()` | pack / unpack the sync record (compress, encrypt) |
 | `SM()` | merge settings one by one |
 | `SG()` | content signature used to tell whether a sync changed anything |
+| `Et(id, ms)` / `Tt(id)` | estimated amount in the body at a time / highest in the last 30 days |
+| `TP(c, route)` | time to peak and where it came from |
 | `UF()` / `UR()` | note / put back typed-but-unsaved boxes around a redraw |
 
 The full history up to b67 is in the Korah Peptides project doc `claude/tracker-build-log.md`. From b68 on, the history is this repo's commit log.

@@ -1,5 +1,5 @@
 {
-  "build": 77,
+  "build": 78,
   "date": "2026-10-30",
-  "note": "Sync compressed, settings sync one by one, no saved password, works offline, typing kept on redraw"
+  "note": "Level estimate: absorption time to peak, much faster; passphrase required for sync"
 }
