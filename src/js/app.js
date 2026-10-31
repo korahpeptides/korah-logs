@@ -1,19 +1,19 @@
 /*! © 2026 Korah Peptides. All rights reserved. This app, its code and its compiled reference tables are protected by copyright. Copying, republishing or reselling them without written permission is not allowed. */
-const e = "protocol:v2",
-  t = (function () {
+const STORE_KEY = "protocol:v2",
+  store = (function () {
     if ("undefined" != typeof window && window.storage && "function" == typeof window.storage.get)
       return {
         kind: "app",
         get: async () => {
           try {
-            const t = await window.storage.get(e);
+            const t = await window.storage.get(STORE_KEY);
             return t && t.value ? t.value : null;
           } catch (e) {
             return null;
           }
         },
         set: async (t) => {
-          await window.storage.set(e, t);
+          await window.storage.set(STORE_KEY, t);
         },
       };
     try {
@@ -23,8 +23,8 @@ const e = "protocol:v2",
         localStorage.removeItem(t),
         {
           kind: "browser",
-          get: async () => localStorage.getItem(e),
-          set: async (t) => localStorage.setItem(e, t),
+          get: async () => localStorage.getItem(STORE_KEY),
+          set: async (t) => localStorage.setItem(STORE_KEY, t),
         }
       );
     } catch (e) {}
@@ -37,24 +37,24 @@ const e = "protocol:v2",
       },
     };
   })();
-let n = null,
-  a = !1,
+let saveTimer = null,
+  saveErrorShown = !1,
   saveCount = 0; // b78: bumped on every save; the level estimate's dose cache (doseList) rebuilds when it changes
-function s() {
+function saveData() {
   (saveCount++,
-    clearTimeout(n),
-    (n = setTimeout(async () => {
+    clearTimeout(saveTimer),
+    (saveTimer = setTimeout(async () => {
       try {
-        (stampChanges(), await t.set(JSON.stringify(d)), syncSoon());
+        (stampChanges(), await store.set(JSON.stringify(appData)), syncSoon());
       } catch (e) {
-        a || ((a = !0), toast("Could not save. Export a backup from Settings."));
+        saveErrorShown || ((saveErrorShown = !0), toast("Could not save. Export a backup from Settings."));
       }
     }, 200)));
 }
 // Build stamp and note come from version.json at build time (see build.mjs).
-const o = __BUILD_STAMP__,
-  i = __BUILD_NOTE__;
-function l() {
+const BUILD_STAMP = __BUILD_STAMP__,
+  BUILD_NOTE = __BUILD_NOTE__;
+function emptyData() {
   return {
     compounds: [],
     protocols: [],
@@ -88,8 +88,8 @@ function l() {
     },
   };
 }
-let d = l(),
-  r = {
+let appData = emptyData(),
+  ui = {
     tab: "today",
     sel: null,
     calMonth: null,
@@ -100,8 +100,8 @@ let d = l(),
     siteView: "front",
     schedAlt: !1,
   };
-const c = ["#27567F", "#2C6349", "#A8690F", "#6B4A86", "#93362A", "#1F6E75", "#7A5C22", "#4A5F7A"],
-  u = [
+const COMPOUND_COLORS = ["#27567F", "#2C6349", "#A8690F", "#6B4A86", "#93362A", "#1F6E75", "#7A5C22", "#4A5F7A"],
+  COMPOUND_LIST = [
     ["5-Amino-1MQ", 5.5, "SubQ"],
     ["ACE-031", 288, "SubQ"],
     ["Adalank", null, "Nasal"],
@@ -204,7 +204,7 @@ const c = ["#27567F", "#2C6349", "#A8690F", "#6B4A86", "#93362A", "#1F6E75", "#7
     ["Vesugen", null, "SubQ"],
     ["VIP", 0.03, "Nasal"],
   ],
-  p = [
+  DOSE_TABLE = [
     ["BPC-157/TB-500 Blend", "250 mcg", "250 mcg", "1.5 mg", "250-500 mcg each"],
     ["DSIP", "100 mcg", "250 mcg", "700 mcg", "100-300 mcg"],
     ["GHRP-6 + CJC-1295 No DAC", "100 mcg", "150 mcg", "200 mcg", "100-200 mcg each"],
@@ -309,12 +309,12 @@ const c = ["#27567F", "#2C6349", "#A8690F", "#6B4A86", "#93362A", "#1F6E75", "#7
     ["Bromantane (Ladasten)", "50 mg", "50 mg", "50 mg", ""],
     ["Eloralintide", "1 mg", "1 mg", "1 mg", ""],
   ],
-  h = { cjc1295dac: "cjc1295withdac", kisspeptin10: "kisspeptin", testosterone: "trt" },
-  m = (e) =>
+  DOSE_ALIASES = { cjc1295dac: "cjc1295withdac", kisspeptin10: "kisspeptin", testosterone: "trt" },
+  nameKey = (e) =>
     String(e || "")
       .toLowerCase()
       .replace(/[^a-z0-9]/g, ""),
-  g = [
+  NAME_ALIASES = [
     ["BPC-157/TB-500 Blend", ["Wolverine"], []],
     ["Tirzepatide", ["Mounjaro", "Zepbound"], []],
     [
@@ -323,42 +323,42 @@ const c = ["#27567F", "#2C6349", "#A8690F", "#6B4A86", "#93362A", "#1F6E75", "#7
       ["Ipamorelin w CJC-1295", "CJC-1295 no-DAC w Ipamorelin", "CJC-1295 + Ipamorelin"],
     ],
   ],
-  v = new Map(),
-  b = new Map();
-for (const [e, t, n] of g) {
-  const a = m(e);
-  b.set(a, t);
-  for (const e of [...t, ...n]) v.set(m(e), a);
+  aliasToKey = new Map(),
+  aliasesByKey = new Map();
+for (const [e, t, n] of NAME_ALIASES) {
+  const a = nameKey(e);
+  aliasesByKey.set(a, t);
+  for (const e of [...t, ...n]) aliasToKey.set(nameKey(e), a);
 }
-const y = (e) => {
-    const t = m(e);
-    return v.get(t) || t;
+const canonicalKey = (e) => {
+    const t = nameKey(e);
+    return aliasToKey.get(t) || t;
   },
-  f = new Map(p.map((e) => [m(e[0]), e])),
-  w = (e) => {
-    const t = y(e);
-    return f.get(t) || f.get(h[t]) || null;
+  doseRowsByKey = new Map(DOSE_TABLE.map((e) => [nameKey(e[0]), e])),
+  doseRowFor = (e) => {
+    const t = canonicalKey(e);
+    return doseRowsByKey.get(t) || doseRowsByKey.get(DOSE_ALIASES[t]) || null;
   };
-function k(e) {
-  const t = w(e);
+function doseCell(e) {
+  const t = doseRowFor(e);
   if (!t || !(t[2] || t[1] || t[3])) return "—";
   const n = (e) => String(e).replace(/[\s\u2013-]/g, ""),
     a = t[1] && t[3] && t[1] !== t[3] && n(t[2]) !== n(t[1] + t[3]) ? `${t[1]} – ${t[3]}` : "";
-  return `<div>${Ht(t[2] || "—")}</div>${a ? `<div class="tiny muted">range ${Ht(a)}</div>` : ""}`;
+  return `<div>${esc(t[2] || "—")}</div>${a ? `<div class="tiny muted">range ${esc(a)}</div>` : ""}`;
 }
-function S(e) {
-  const t = w(e);
+function jibhCell(e) {
+  const t = doseRowFor(e);
   return t && t[4]
     ? t[4]
         .split("\n")
         .map((e) => {
           const t = e.match(/^(.*\S)\s+(\([^)]*\))\s*$/);
-          return t ? `<div>${Ht(t[1])}<span class="nm2">${Ht(t[2])}</span></div>` : `<div>${Ht(e)}</div>`;
+          return t ? `<div>${esc(t[1])}<span class="nm2">${esc(t[2])}</span></div>` : `<div>${esc(e)}</div>`;
         })
         .join("")
     : "—";
 }
-const M = [
+const SCHEDULE_TABLE = [
     ["5-Amino-1MQ", "AM", "Daily", "8–12 wks on / 4–6 off", "AM", "Daily", "8 wks", "001"],
     ["ACE-031", "AM fasted", "q14d", "2 doses / 28d", "AM fasted", "2 doses/28d", "2 doses / 28d", "000"],
     ["Adalank", "", "1x daily (morning)", "2–4 wk cycles"],
@@ -569,16 +569,16 @@ const M = [
     ["Vesugen", "", "Once daily for 2 months", "1 mo on / 2 off · 2–3×/yr"],
     ["VIP", "AM / PM", "Daily", "2-4 wks (short) / 3-6 mo (long)", "AM / PM", "Daily", "8 wks", "001"],
   ],
-  x = new Map(M.map((e) => [m(e[0]), e])),
-  A = { kisspeptin: "kisspeptin10", trt: "testosterone", cjc1295withdac: "cjc1295dac" },
-  $ = (e) => {
-    const t = y(e);
-    return x.get(t) || x.get(A[t]) || null;
+  scheduleRowsByKey = new Map(SCHEDULE_TABLE.map((e) => [nameKey(e[0]), e])),
+  SCHEDULE_ALIASES = { kisspeptin: "kisspeptin10", trt: "testosterone", cjc1295withdac: "cjc1295dac" },
+  scheduleRowFor = (e) => {
+    const t = canonicalKey(e);
+    return scheduleRowsByKey.get(t) || scheduleRowsByKey.get(SCHEDULE_ALIASES[t]) || null;
   };
-function I(e) {
-  const t = $(e);
+function scheduleCell(e) {
+  const t = scheduleRowFor(e);
   if (!t) return "—";
-  const n = !!r.schedAlt && t.length > 4,
+  const n = !!ui.schedAlt && t.length > 4,
     a = n ? 4 : 1,
     s = n ? 1 : 4,
     o = t.length > 4 ? t[7] : "000",
@@ -587,15 +587,15 @@ function I(e) {
       if (!l) return "";
       const d = "1" === o[e],
         r = n && l !== t[s + e];
-      return `<div class="${i}${d ? " schflag" : ""}${r ? " schchg" : ""}"${d && !n ? ` title="Source Comparison: ${Ht(t[s + e])}"` : ""}>${Ht(l)}${r ? `<span class="was">Quick Reference: ${Ht(t[s + e])}</span>` : ""}</div>`;
+      return `<div class="${i}${d ? " schflag" : ""}${r ? " schchg" : ""}"${d && !n ? ` title="Source Comparison: ${esc(t[s + e])}"` : ""}>${esc(l)}${r ? `<span class="was">Quick Reference: ${esc(t[s + e])}</span>` : ""}</div>`;
     };
   return i(1, "schf") + i(0, "scht") + i(2, "schc") || "—";
 }
-function C() {
-  const e = M.filter((e) => e.length > 4).length,
-    t = d.compounds.length,
-    n = d.compounds.filter((e) => {
-      const t = $(e.name);
+function scheduleSummary() {
+  const e = SCHEDULE_TABLE.filter((e) => e.length > 4).length,
+    t = appData.compounds.length,
+    n = appData.compounds.filter((e) => {
+      const t = scheduleRowFor(e.name);
       return t && t.length > 4;
     }).length,
     a = t
@@ -603,77 +603,77 @@ function C() {
         ? ` ${n} of your ${t} differ.`
         : ` None of your ${t} differ, so Yours looks the same either way.`
       : "";
-  return r.schedAlt
-    ? `Showing the Source Comparison tab. Highlighted lines differ from Quick Reference, which is shown under each one. ${e} of ${M.length} library compounds differ.${a}`
-    : `Showing the Quick Reference tab. Press Alternative to see the Source Comparison tab instead: ${e} of ${M.length} library compounds differ.${a} An amber dot marks a line where the two really disagree.`;
+  return ui.schedAlt
+    ? `Showing the Source Comparison tab. Highlighted lines differ from Quick Reference, which is shown under each one. ${e} of ${SCHEDULE_TABLE.length} library compounds differ.${a}`
+    : `Showing the Quick Reference tab. Press Alternative to see the Source Comparison tab instead: ${e} of ${SCHEDULE_TABLE.length} library compounds differ.${a} An amber dot marks a line where the two really disagree.`;
 }
-const L = (e) => `<td class="sch" data-schn="${Ht(e)}">${I(e)}</td>`;
-function q(e) {
+const scheduleTd = (e) => `<td class="sch" data-schn="${esc(e)}">${scheduleCell(e)}</td>`;
+function compoundNameCell(e) {
   const t = String(e || "").trim(),
-    n = b.get(m(t));
-  if (n && n.length) return `<b>${Ht(t)}</b><span class="nm2">${Ht(n.join(" · "))}</span>`;
+    n = aliasesByKey.get(nameKey(t));
+  if (n && n.length) return `<b>${esc(t)}</b><span class="nm2">${esc(n.join(" · "))}</span>`;
   let a = t.match(/^(.+?)\s+\/\s+(.+)$/);
   return a
-    ? `<b>${Ht(a[1])}</b><span class="nm2">${Ht(a[2])}</span>`
+    ? `<b>${esc(a[1])}</b><span class="nm2">${esc(a[2])}</span>`
     : ((a = t.match(/^(.+?)\s+(\(.+\))$/)),
       a
-        ? `<b>${Ht(a[1])}</b><span class="nm2">${Ht(a[2])}</span>`
+        ? `<b>${esc(a[1])}</b><span class="nm2">${esc(a[2])}</span>`
         : ((a = t.match(/^(.+?)\s+((?:w|with|\+)\s+.+)$/i)),
-          a ? `<b>${Ht(a[1])}</b><span class="nm2">${Ht(a[2])}</span>` : `<b>${Ht(t)}</b>`));
+          a ? `<b>${esc(a[1])}</b><span class="nm2">${esc(a[2])}</span>` : `<b>${esc(t)}</b>`));
 }
-const D = ["SubQ"],
-  E = ["IM"],
-  T = ["SubQ", "IM"],
-  P = "At least 5 cm (2 in) from the navel.",
-  O = "Below the ribs, and at least 5 cm (2 in) from the navel.",
-  B = "Front and outer thigh only.",
-  H = "Upper third, front and outer thigh only. Keep well clear of the groin.",
-  U = "Lower third, front and outer thigh only. Keep well above the kneecap.",
-  Q = "Over the shoulder-blade area. You can’t see or pinch it yourself — needs a second person.",
-  N = "Only the fleshy area just above the buttock, well off the spine.",
-  F = "Upper outer quarter only.",
-  V = [
-    ["fdl", "Left Side Deltoid", "front", 53, 183, E, ""],
-    ["fdr", "Right Side Deltoid", "front", 253, 183, E, ""],
-    ["fdfl", "Left Front Deltoid", "front", 81, 176, E, ""],
-    ["fdfr", "Right Front Deltoid", "front", 225, 176, E, ""],
-    ["ful", "Left Inner Upper Abdomen", "front", 121, 262, D, O],
-    ["fur", "Right Inner Upper Abdomen", "front", 185, 262, D, O],
-    ["fuol", "Left Outer Upper Abdomen", "front", 95, 262, D, O],
-    ["fuor", "Right Outer Upper Abdomen", "front", 211, 262, D, O],
-    ["fal", "Left Inner Abdomen", "front", 121, 301, D, P],
-    ["far", "Right Inner Abdomen", "front", 185, 301, D, P],
-    ["faol", "Left Outer Abdomen", "front", 95, 301, D, P],
-    ["faor", "Right Outer Abdomen", "front", 211, 301, D, P],
-    ["fll", "Left Inner Lower Abdomen", "front", 121, 352, D, P],
-    ["flr", "Right Inner Lower Abdomen", "front", 185, 352, D, P],
-    ["flol", "Left Outer Lower Abdomen", "front", 95, 352, D, P],
-    ["flor", "Right Outer Lower Abdomen", "front", 211, 352, D, P],
-    ["fhil", "Left Inner Love Handle", "front", 115, 327, D, ""],
-    ["fhir", "Right Inner Love Handle", "front", 191, 327, D, ""],
-    ["fhl", "Left Outer Love Handle", "front", 89, 327, D, ""],
-    ["fhr", "Right Outer Love Handle", "front", 217, 327, D, ""],
-    ["ftul", "Left Upper Thigh", "front", 103, 422, D, H],
-    ["ftur", "Right Upper Thigh", "front", 203, 422, D, H],
-    ["ftl", "Left Mid Thigh", "front", 100, 470, D, B],
-    ["ftr", "Right Mid Thigh", "front", 206, 470, D, B],
-    ["ftdl", "Left Lower Thigh", "front", 108, 518, D, U],
-    ["ftdr", "Right Lower Thigh", "front", 198, 518, D, U],
-    ["bdrl", "Left Back Deltoid", "back", 66, 181, E, ""],
-    ["bdrr", "Right Back Deltoid", "back", 240, 181, E, ""],
-    ["bul", "Left Upper Back", "back", 118, 222, D, Q],
-    ["bur", "Right Upper Back", "back", 188, 222, D, Q],
-    ["btl", "Left Tricep", "back", 48, 280, D, ""],
-    ["btr", "Right Tricep", "back", 258, 280, D, ""],
-    ["bll", "Left Lower Back", "back", 114, 305, D, N],
-    ["blr", "Right Lower Back", "back", 192, 305, D, N],
-    ["bvl", "Left Ventrogluteal", "back", 91, 342, E, ""],
-    ["bvr", "Right Ventrogluteal", "back", 215, 342, E, ""],
-    ["bgl", "Left Glute", "back", 106, 368, T, F],
-    ["bgr", "Right Glute", "back", 200, 368, T, F],
+const ROUTE_SUBQ = ["SubQ"],
+  ROUTE_IM = ["IM"],
+  ROUTE_BOTH = ["SubQ", "IM"],
+  NOTE_NAVEL = "At least 5 cm (2 in) from the navel.",
+  NOTE_BELOW_RIBS = "Below the ribs, and at least 5 cm (2 in) from the navel.",
+  NOTE_THIGH = "Front and outer thigh only.",
+  NOTE_UPPER_THIGH = "Upper third, front and outer thigh only. Keep well clear of the groin.",
+  NOTE_LOWER_THIGH = "Lower third, front and outer thigh only. Keep well above the kneecap.",
+  NOTE_SHOULDER_BLADE = "Over the shoulder-blade area. You can’t see or pinch it yourself — needs a second person.",
+  NOTE_FLANK = "Only the fleshy area just above the buttock, well off the spine.",
+  NOTE_GLUTE = "Upper outer quarter only.",
+  SITES = [
+    ["fdl", "Left Side Deltoid", "front", 53, 183, ROUTE_IM, ""],
+    ["fdr", "Right Side Deltoid", "front", 253, 183, ROUTE_IM, ""],
+    ["fdfl", "Left Front Deltoid", "front", 81, 176, ROUTE_IM, ""],
+    ["fdfr", "Right Front Deltoid", "front", 225, 176, ROUTE_IM, ""],
+    ["ful", "Left Inner Upper Abdomen", "front", 121, 262, ROUTE_SUBQ, NOTE_BELOW_RIBS],
+    ["fur", "Right Inner Upper Abdomen", "front", 185, 262, ROUTE_SUBQ, NOTE_BELOW_RIBS],
+    ["fuol", "Left Outer Upper Abdomen", "front", 95, 262, ROUTE_SUBQ, NOTE_BELOW_RIBS],
+    ["fuor", "Right Outer Upper Abdomen", "front", 211, 262, ROUTE_SUBQ, NOTE_BELOW_RIBS],
+    ["fal", "Left Inner Abdomen", "front", 121, 301, ROUTE_SUBQ, NOTE_NAVEL],
+    ["far", "Right Inner Abdomen", "front", 185, 301, ROUTE_SUBQ, NOTE_NAVEL],
+    ["faol", "Left Outer Abdomen", "front", 95, 301, ROUTE_SUBQ, NOTE_NAVEL],
+    ["faor", "Right Outer Abdomen", "front", 211, 301, ROUTE_SUBQ, NOTE_NAVEL],
+    ["fll", "Left Inner Lower Abdomen", "front", 121, 352, ROUTE_SUBQ, NOTE_NAVEL],
+    ["flr", "Right Inner Lower Abdomen", "front", 185, 352, ROUTE_SUBQ, NOTE_NAVEL],
+    ["flol", "Left Outer Lower Abdomen", "front", 95, 352, ROUTE_SUBQ, NOTE_NAVEL],
+    ["flor", "Right Outer Lower Abdomen", "front", 211, 352, ROUTE_SUBQ, NOTE_NAVEL],
+    ["fhil", "Left Inner Love Handle", "front", 115, 327, ROUTE_SUBQ, ""],
+    ["fhir", "Right Inner Love Handle", "front", 191, 327, ROUTE_SUBQ, ""],
+    ["fhl", "Left Outer Love Handle", "front", 89, 327, ROUTE_SUBQ, ""],
+    ["fhr", "Right Outer Love Handle", "front", 217, 327, ROUTE_SUBQ, ""],
+    ["ftul", "Left Upper Thigh", "front", 103, 422, ROUTE_SUBQ, NOTE_UPPER_THIGH],
+    ["ftur", "Right Upper Thigh", "front", 203, 422, ROUTE_SUBQ, NOTE_UPPER_THIGH],
+    ["ftl", "Left Mid Thigh", "front", 100, 470, ROUTE_SUBQ, NOTE_THIGH],
+    ["ftr", "Right Mid Thigh", "front", 206, 470, ROUTE_SUBQ, NOTE_THIGH],
+    ["ftdl", "Left Lower Thigh", "front", 108, 518, ROUTE_SUBQ, NOTE_LOWER_THIGH],
+    ["ftdr", "Right Lower Thigh", "front", 198, 518, ROUTE_SUBQ, NOTE_LOWER_THIGH],
+    ["bdrl", "Left Back Deltoid", "back", 66, 181, ROUTE_IM, ""],
+    ["bdrr", "Right Back Deltoid", "back", 240, 181, ROUTE_IM, ""],
+    ["bul", "Left Upper Back", "back", 118, 222, ROUTE_SUBQ, NOTE_SHOULDER_BLADE],
+    ["bur", "Right Upper Back", "back", 188, 222, ROUTE_SUBQ, NOTE_SHOULDER_BLADE],
+    ["btl", "Left Tricep", "back", 48, 280, ROUTE_SUBQ, ""],
+    ["btr", "Right Tricep", "back", 258, 280, ROUTE_SUBQ, ""],
+    ["bll", "Left Lower Back", "back", 114, 305, ROUTE_SUBQ, NOTE_FLANK],
+    ["blr", "Right Lower Back", "back", 192, 305, ROUTE_SUBQ, NOTE_FLANK],
+    ["bvl", "Left Ventrogluteal", "back", 91, 342, ROUTE_IM, ""],
+    ["bvr", "Right Ventrogluteal", "back", 215, 342, ROUTE_IM, ""],
+    ["bgl", "Left Glute", "back", 106, 368, ROUTE_BOTH, NOTE_GLUTE],
+    ["bgr", "Right Glute", "back", 200, 368, ROUTE_BOTH, NOTE_GLUTE],
   ],
-  R = { bdl: "bdrl", bdr: "bdrr", bfl: "fhl", bfr: "fhr" },
-  W = {
+  SITE_RENAMES = { bdl: "bdrl", bdr: "bdrr", bfl: "fhl", bfr: "fhr" },
+  OLD_SITE_NAMES = {
     fbl: "Left Bicep",
     fbr: "Right Bicep",
     ffl: "Left Forearm",
@@ -681,168 +681,168 @@ const D = ["SubQ"],
     bhl: "Left Hamstring",
     bhr: "Right Hamstring",
   };
-function j() {
+function migrateSites() {
   let e = 0;
-  for (const t of d.logs || []) t.site && R[t.site] && ((t.site = R[t.site]), e++);
+  for (const t of appData.logs || []) t.site && SITE_RENAMES[t.site] && ((t.site = SITE_RENAMES[t.site]), e++);
   return e;
 }
-const G = (e) => V.find((t) => t[0] === e),
-  K = (e) => {
-    const t = G(e);
-    return t ? t[1] : W[e] || "";
+const siteById = (e) => SITES.find((t) => t[0] === e),
+  siteName = (e) => {
+    const t = siteById(e);
+    return t ? t[1] : OLD_SITE_NAMES[e] || "";
   },
-  J = (e) => {
-    const t = G(e);
+  siteNote = (e) => {
+    const t = siteById(e);
     return t ? t[6] : "";
   },
-  z = (e) => {
-    const t = G(e);
+  siteRoutes = (e) => {
+    const t = siteById(e);
     return t ? t[5] : [];
   },
-  Y = ["SubQ", "IM"];
-function Z(e) {
+  ROUTES = ["SubQ", "IM"];
+function siteLabel(e) {
   if (!e.site) return "";
-  const t = K(e.site);
-  return e.route && z(e.site).length > 1 ? `${t} (${e.route})` : t;
+  const t = siteName(e.site);
+  return e.route && siteRoutes(e.site).length > 1 ? `${t} (${e.route})` : t;
 }
-const X = (e) => String(e).padStart(2, "0"),
-  _ = (e) => `${e.getFullYear()}-${X(e.getMonth() + 1)}-${X(e.getDate())}`,
-  ee = (e) => {
+const pad2 = (e) => String(e).padStart(2, "0"),
+  isoDate = (e) => `${e.getFullYear()}-${pad2(e.getMonth() + 1)}-${pad2(e.getDate())}`,
+  parseDate = (e) => {
     const [t, n, a] = String(e).split("-").map(Number);
     return new Date(t, n - 1, a);
   },
-  te = () => _(new Date());
-function ne(e, t) {
-  const n = ee(e);
-  return (n.setDate(n.getDate() + t), _(n));
+  todayIso = () => isoDate(new Date());
+function addDays(e, t) {
+  const n = parseDate(e);
+  return (n.setDate(n.getDate() + t), isoDate(n));
 }
-function ae(e, t) {
-  return Math.round((ee(t) - ee(e)) / 864e5);
+function daysBetween(e, t) {
+  return Math.round((parseDate(t) - parseDate(e)) / 864e5);
 }
-function se(e) {
-  return ee(e).toLocaleDateString(void 0, { month: "short", day: "numeric" });
+function shortDate(e) {
+  return parseDate(e).toLocaleDateString(void 0, { month: "short", day: "numeric" });
 }
-function oe(e) {
-  return ee(e).toLocaleDateString(void 0, { month: "short", day: "numeric", year: "numeric" });
+function shortDateYear(e) {
+  return parseDate(e).toLocaleDateString(void 0, { month: "short", day: "numeric", year: "numeric" });
 }
-function ie(e) {
-  return ee(e).toLocaleDateString(void 0, { weekday: "long", month: "long", day: "numeric" });
+function longDate(e) {
+  return parseDate(e).toLocaleDateString(void 0, { weekday: "long", month: "long", day: "numeric" });
 }
-const le = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
-function de(e) {
-  const t = ee(e);
-  return `${le[t.getMonth()]} ${t.getDate()}, ${t.getFullYear()}`;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+function fullDate(e) {
+  const t = parseDate(e);
+  return `${MONTHS[t.getMonth()]} ${t.getDate()}, ${t.getFullYear()}`;
 }
-function re(e) {
-  return "24" === d.settings.clock
-    ? `${X(e.getHours())}:${X(e.getMinutes())}`
+function clockTime(e) {
+  return "24" === appData.settings.clock
+    ? `${pad2(e.getHours())}:${pad2(e.getMinutes())}`
     : e.toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" });
 }
-function ce(e) {
-  const t = ae(te(), e);
+function relativeDay(e) {
+  const t = daysBetween(todayIso(), e);
   return 0 === t
     ? "Today"
     : 1 === t
       ? "Tomorrow"
       : -1 === t
         ? "Yesterday"
-        : ee(e).toLocaleDateString(void 0, { weekday: "short", month: "short", day: "numeric" });
+        : parseDate(e).toLocaleDateString(void 0, { weekday: "short", month: "short", day: "numeric" });
 }
-function ue(e) {
+function splitTime(e) {
   if (!e) return null;
   const [t, n] = String(e).split(":").map(Number);
   if (!isFinite(t)) return null;
-  if ("24" === d.settings.clock) return { t: `${X(t)}:${X(n || 0)}`, ap: "" };
+  if ("24" === appData.settings.clock) return { t: `${pad2(t)}:${pad2(n || 0)}`, ap: "" };
   const a = t < 12 ? "AM" : "PM";
-  return { t: `${t % 12 == 0 ? 12 : t % 12}:${X(n || 0)}`, ap: a };
+  return { t: `${t % 12 == 0 ? 12 : t % 12}:${pad2(n || 0)}`, ap: a };
 }
-const pe = (e) => e.time || "99:99";
-function he(e) {
-  return `${_(e)}T${X(e.getHours())}:${X(e.getMinutes())}`;
+const timeSortKey = (e) => e.time || "99:99";
+function localDateTime(e) {
+  return `${isoDate(e)}T${pad2(e.getHours())}:${pad2(e.getMinutes())}`;
 }
-const me = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-  ge = [1, 2, 3, 4, 5, 6, 0],
-  ve = () => Math.random().toString(36).slice(2, 10),
-  be = (e) => {
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0],
+  newId = () => Math.random().toString(36).slice(2, 10),
+  toNum = (e) => {
     const t = parseFloat(e);
     return isFinite(t) ? t : 0;
   };
-function ye(e, t) {
+function roundTo(e, t) {
   const n = Math.pow(10, t);
   return Math.round(e * n) / n;
 }
-function fe(e, t = 2) {
-  return isFinite(e) ? ye(e, t).toLocaleString(void 0, { maximumFractionDigits: t }) : "—";
+function fmt(e, t = 2) {
+  return isFinite(e) ? roundTo(e, t).toLocaleString(void 0, { maximumFractionDigits: t }) : "—";
 }
-function we(e) {
+function fmtMass(e) {
   return 0 === e
     ? "0 mg"
     : Math.abs(e) < 0.001
-      ? fe(1e6 * e, 0) + " ng"
+      ? fmt(1e6 * e, 0) + " ng"
       : Math.abs(e) < 1
-        ? fe(1e3 * e, 1e3 * e < 10 ? 1 : 0) + " mcg"
-        : fe(e, e < 10 ? 2 : 1) + " mg";
+        ? fmt(1e3 * e, 1e3 * e < 10 ? 1 : 0) + " mcg"
+        : fmt(e, e < 10 ? 2 : 1) + " mg";
 }
-function ke(e) {
+function fmtDuration(e) {
   if (null === e || !isFinite(e)) return "—";
   if (e < 60) return `${Math.floor(e)} days`;
   const t = e / 30.44;
   return t < 24 ? `~${Math.round(t)} months` : `~${(t / 12).toFixed(1)} years`;
 }
-const Se = (e, t) => ("mcg" === t ? be(e) / 1e3 : be(e)),
-  Me = (e) => !(!e || "iu" !== e.base),
-  xe = (e) => (Me(e) ? "IU" : "mg"),
-  Ae = (e) => (Me(e) ? "IU/mL" : "mg/mL");
-function $e(e, t) {
-  return Me(t) ? (e ? fe(e, Math.abs(e) < 10 ? 2 : 1) + " IU" : "0 IU") : we(e);
+const toMg = (e, t) => ("mcg" === t ? toNum(e) / 1e3 : toNum(e)),
+  isIU = (e) => !(!e || "iu" !== e.base),
+  massUnit = (e) => (isIU(e) ? "IU" : "mg"),
+  concUnit = (e) => (isIU(e) ? "IU/mL" : "mg/mL");
+function fmtAmount(e, t) {
+  return isIU(t) ? (e ? fmt(e, Math.abs(e) < 10 ? 2 : 1) + " IU" : "0 IU") : fmtMass(e);
 }
-const Ie = (e, t) => ("mcg" === t ? 1e3 * e : e),
-  Ce = (e) => d.compounds.find((t) => t.id === e),
-  Le = (e) => d.protocols.find((t) => t.id === e),
-  qe = (e) => d.batches.find((t) => t.id === e),
-  De = (e) => d.batches.filter((t) => t.compoundId === e && "finished" !== t.status),
-  Ee = (e) => De(e).find((e) => be(e.openMg) > 0) || De(e).find((e) => e.sealed > 0);
-function Te(e) {
-  const t = y(e);
-  return t ? d.compounds.find((e) => y(e.name) === t) : void 0;
+const fromMg = (e, t) => ("mcg" === t ? 1e3 * e : e),
+  compoundById = (e) => appData.compounds.find((t) => t.id === e),
+  protocolById = (e) => appData.protocols.find((t) => t.id === e),
+  batchById = (e) => appData.batches.find((t) => t.id === e),
+  liveBatches = (e) => appData.batches.filter((t) => t.compoundId === e && "finished" !== t.status),
+  currentBatch = (e) => liveBatches(e).find((e) => toNum(e.openMg) > 0) || liveBatches(e).find((e) => e.sealed > 0);
+function findCompound(e) {
+  const t = canonicalKey(e);
+  return t ? appData.compounds.find((e) => canonicalKey(e.name) === t) : void 0;
 }
-function Pe(e) {
-  const t = Te(e);
+function findOrAddCompound(e) {
+  const t = findCompound(e);
   if (t) return t;
-  const n = u.find((t) => t[0].toLowerCase() === String(e).trim().toLowerCase()),
+  const n = COMPOUND_LIST.find((t) => t[0].toLowerCase() === String(e).trim().toLowerCase()),
     a = {
-      id: ve(),
+      id: newId(),
       name: String(e).trim(),
       halfLife: n ? n[1] : "",
       route: n ? n[2] : "SubQ",
       base: (n && n[3]) || "mg",
-      color: c[d.compounds.length % c.length],
+      color: COMPOUND_COLORS[appData.compounds.length % COMPOUND_COLORS.length],
       notes: "",
     };
-  return (d.compounds.push(a), a);
+  return (appData.compounds.push(a), a);
 }
-const Oe = 100;
-function Be(e) {
-  return e && be(e.bacMl) ? be(e.vialMg) / be(e.bacMl) : 0;
+const UNITS_PER_ML = 100;
+function batchConc(e) {
+  return e && toNum(e.bacMl) ? toNum(e.vialMg) / toNum(e.bacMl) : 0;
 }
-function He(e) {
+function batchText(e) {
   if (!e) return "";
-  const t = Ce(e.compoundId),
-    n = be(e.bacMl);
-  return `${fe(be(e.vialMg), 2)} ${xe(t)}${n ? ` in ${fe(n, 2)} mL` : " · not mixed yet"}`;
+  const t = compoundById(e.compoundId),
+    n = toNum(e.bacMl);
+  return `${fmt(toNum(e.vialMg), 2)} ${massUnit(t)}${n ? ` in ${fmt(n, 2)} mL` : " · not mixed yet"}`;
 }
-function Ue(e, t) {
-  const n = Ce(e.compoundId),
-    a = Ee(e.compoundId),
-    s = e.pen ? 0 : Be(a),
-    o = Ge(e, t || te()),
-    i = Se(o.dose, o.unit),
+function doseMath(e, t) {
+  const n = compoundById(e.compoundId),
+    a = currentBatch(e.compoundId),
+    s = e.pen ? 0 : batchConc(a),
+    o = doseOn(e, t || todayIso()),
+    i = toMg(o.dose, o.unit),
     l = s > 0 ? i / s : 0;
   return {
     conc: s,
     doseMg: i,
     volMl: l,
-    units: l * Oe,
+    units: l * UNITS_PER_ML,
     compound: n,
     batch: a,
     dose: o.dose,
@@ -850,27 +850,27 @@ function Ue(e, t) {
     phase: o,
   };
 }
-function Qe(e, t, n) {
-  const a = be(t) > 0 ? be(e) / be(t) : 0,
+function drawMath(e, t, n) {
+  const a = toNum(t) > 0 ? toNum(e) / toNum(t) : 0,
     s = a > 0 ? n / a : 0;
-  return { conc: a, volMl: s, units: s * Oe, perVial: n > 0 ? be(e) / n : 0 };
+  return { conc: a, volMl: s, units: s * UNITS_PER_ML, perVial: n > 0 ? toNum(e) / n : 0 };
 }
-function Ne(e, t, n) {
-  const a = be(n) / Oe;
+function waterMath(e, t, n) {
+  const a = toNum(n) / UNITS_PER_ML;
   if (!a || !t) return { waterMl: 0, conc: 0, perVial: 0 };
   const s = t / a;
-  return { waterMl: be(e) / s, conc: s, perVial: be(e) / t };
+  return { waterMl: toNum(e) / s, conc: s, perVial: toNum(e) / t };
 }
-function Fe(e) {
+function niceCeil(e) {
   for (const t of [1, 2, 3, 5, 10, 20, 30]) if (e <= t) return t;
   return Math.ceil(e);
 }
-const Ve = (e, t) => Math.max(0, Math.round(be(e) * ("days" === t ? 1 : 7)));
-function Re(e, t) {
-  const n = ae(e.startDate || t, t);
+const periodDays = (e, t) => Math.max(0, Math.round(toNum(e) * ("days" === t ? 1 : 7)));
+function cyclePosition(e, t) {
+  const n = daysBetween(e.startDate || t, t);
   if (!e.cycling) return { on: !0, elapsedOn: n, block: 0, pos: n, onD: 0, offD: 0 };
-  const a = Ve(e.cycleOnN, e.cycleOnUnit) || 1,
-    s = Ve(e.cycleOffN, e.cycleOffUnit),
+  const a = periodDays(e.cycleOnN, e.cycleOnUnit) || 1,
+    s = periodDays(e.cycleOffN, e.cycleOffUnit),
     o = a + s;
   if (o <= 0) return { on: !0, elapsedOn: n, block: 0, pos: n, onD: a, offD: s };
   const i = ((n % o) + o) % o,
@@ -884,66 +884,66 @@ function Re(e, t) {
     elapsedOn: "restart" === e.cycleResume ? i : l * a + Math.min(i, a),
   };
 }
-function We(e) {
+function phaseList(e) {
   const p = e.phases || [];
-  return p.filter((e, i) => e && (be(e.dur) > 0 || i === p.length - 1));
+  return p.filter((e, i) => e && (toNum(e.dur) > 0 || i === p.length - 1));
 }
-function je(e) {
+function blankPhaseCount(e) {
   return e.escalate
-    ? (e.phases || []).filter((e, i, p) => e && i < p.length - 1 && !(be(e.dur) > 0)).length
+    ? (e.phases || []).filter((e, i, p) => e && i < p.length - 1 && !(toNum(e.dur) > 0)).length
     : 0;
 }
-function Ge(e, t) {
-  const n = We(e);
+function doseOn(e, t) {
+  const n = phaseList(e);
   if (!e.escalate || !n.length) return { dose: e.dose, unit: e.unit, phase: 0, of: 0 };
-  const a = Re(e, t).elapsedOn;
+  const a = cyclePosition(e, t).elapsedOn;
   let s = 0;
   for (let t = 0; t < n.length; t++) {
-    const o = Ve(n[t].dur, n[t].durUnit);
+    const o = periodDays(n[t].dur, n[t].durUnit);
     if (a < s + o)
       return { dose: n[t].dose, unit: n[t].unit || e.unit, phase: t + 1, of: n.length, daysLeft: s + o - a };
     s += o;
   }
   const o = n[n.length - 1];
-  return { dose: o.dose, unit: o.unit || e.unit, phase: n.length, of: n.length, holding: be(o.dur) > 0 };
+  return { dose: o.dose, unit: o.unit || e.unit, phase: n.length, of: n.length, holding: toNum(o.dur) > 0 };
 }
-function Ke(e) {
-  return We(e).reduce((e, t) => e + Ve(t.dur, t.durUnit), 0);
+function phasesLength(e) {
+  return phaseList(e).reduce((e, t) => e + periodDays(t.dur, t.durUnit), 0);
 }
-function Je(e, t) {
-  const n = Ge(e, t);
+function nextDoseChange(e, t) {
+  const n = doseOn(e, t);
   for (let a = 1; a <= 400; a++) {
-    const s = ne(t, a),
-      o = Ge(e, s);
-    if (o.phase !== n.phase || be(o.dose) !== be(n.dose)) return { date: s, dose: o };
+    const s = addDays(t, a),
+      o = doseOn(e, s);
+    if (o.phase !== n.phase || toNum(o.dose) !== toNum(n.dose)) return { date: s, dose: o };
   }
   return null;
 }
-function ze(e) {
+function cycleText(e) {
   return e.cycling
-    ? `${be(e.cycleOnN)} ${e.cycleOnUnit || "weeks"} on / ${be(e.cycleOffN)} ${e.cycleOffUnit || "weeks"} off`
+    ? `${toNum(e.cycleOnN)} ${e.cycleOnUnit || "weeks"} on / ${toNum(e.cycleOffN)} ${e.cycleOffUnit || "weeks"} off`
     : "";
 }
-function PI(e, t) {
+function phaseOn(e, t) {
   if (!e.escalate) return null;
-  const n = We(e);
+  const n = phaseList(e);
   if (!n.length) return null;
-  const a = Re(e, t).elapsedOn;
+  const a = cyclePosition(e, t).elapsedOn;
   let s = 0;
   for (let i = 0; i < n.length; i++) {
-    const o = Ve(n[i].dur, n[i].durUnit);
+    const o = periodDays(n[i].dur, n[i].durUnit);
     if (i === n.length - 1 || a < s + o) return { p: n[i], st: s, i: i };
     s += o;
   }
   return null;
 }
-function EF(e, t) {
-  const P = PI(e, t || te());
+function scheduleOn(e, t) {
+  const P = phaseOn(e, t || todayIso());
   return P && P.p.ps
     ? { sched: P.p.ps, days: P.p.pdays, intervalDays: P.p.pint, cycleOn: e.cycleOn, cycleOff: e.cycleOff }
     : e;
 }
-function PSC(e, n) {
+function phaseScheduleField(e, n) {
   const s = e.ps || "";
   return `<div class="phsch"><span class="tiny muted">Schedule</span><select class="ph-s" aria-label="Phase ${n + 1} schedule">${[
     ["", "Same as the protocol"],
@@ -954,30 +954,30 @@ function PSC(e, n) {
     .map(([v, l]) => `<option value="${v}"${s === v ? " selected" : ""}>${l}</option>`)
     .join(
       "",
-    )}</select>${"weekdays" === s ? `<div class="daypick">${me.map((d, i) => `<button type="button" data-pd="${n},${i}" aria-pressed="${(e.pdays || []).includes(i)}">${d}</button>`).join("")}</div>` : ""}${"interval" === s ? `<span class="tiny muted">every</span><input class="ph-i" type="number" min="1" step="1" value="${Ht(e.pint || 2)}"><span class="tiny muted">days</span>` : ""}</div>`;
+    )}</select>${"weekdays" === s ? `<div class="daypick">${WEEKDAYS.map((d, i) => `<button type="button" data-pd="${n},${i}" aria-pressed="${(e.pdays || []).includes(i)}">${d}</button>`).join("")}</div>` : ""}${"interval" === s ? `<span class="tiny muted">every</span><input class="ph-i" type="number" min="1" step="1" value="${esc(e.pint || 2)}"><span class="tiny muted">days</span>` : ""}</div>`;
 }
-const DK = "protocol:draft";
-function DG(e) {
+const DRAFT_KEY = "protocol:draft";
+function draftGet(e) {
   try {
-    const x = JSON.parse(localStorage.getItem(DK) || "null");
+    const x = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
     if (!x || (x.edit || "") !== (e || "") || Date.now() - x.at > 6048e5) return null;
-    if (e && !Le(e)) return null;
+    if (e && !protocolById(e)) return null;
     return x;
   } catch (z) {
     return null;
   }
 }
-function DS(x) {
+function draftSave(x) {
   try {
-    localStorage.setItem(DK, JSON.stringify(x));
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(x));
   } catch (z) {}
 }
-function DX() {
+function draftClear() {
   try {
-    localStorage.removeItem(DK);
+    localStorage.removeItem(DRAFT_KEY);
   } catch (z) {}
 }
-function DT(a) {
+function timeAgo(a) {
   const m = Math.round((Date.now() - a) / 6e4);
   return m < 1
     ? "just now"
@@ -987,46 +987,46 @@ function DT(a) {
         ? Math.round(m / 60) + " h ago"
         : Math.round(m / 1440) + " days ago";
 }
-function Ye(e, t) {
+function isDue(e, t) {
   if (!e.active) return !1;
   if (e.startDate && t < e.startDate) return !1;
-  const n = Ze(e);
+  const n = endDate(e);
   if (n && t > n) return !1;
-  let a = ae(e.startDate || t, t);
+  let a = daysBetween(e.startDate || t, t);
   if (a < 0) return !1;
-  if (e.cycling && !Re(e, t).on) return !1;
-  const P = PI(e, t),
+  if (e.cycling && !cyclePosition(e, t).on) return !1;
+  const P = phaseOn(e, t),
     S = P && P.p.ps ? { sched: P.p.ps, days: P.p.pdays, intervalDays: P.p.pint } : e;
-  S !== e && (a = Re(e, t).elapsedOn - P.st);
+  S !== e && (a = cyclePosition(e, t).elapsedOn - P.st);
   switch (S.sched) {
     case "daily":
       return !0;
     case "weekdays":
-      return (S.days || []).includes(ee(t).getDay());
+      return (S.days || []).includes(parseDate(t).getDay());
     case "interval":
-      return a % Math.max(1, be(S.intervalDays)) === 0;
+      return a % Math.max(1, toNum(S.intervalDays)) === 0;
     case "cycle": {
-      const t = Math.max(1, be(e.cycleOn));
-      return a % (t + Math.max(0, be(e.cycleOff))) < t;
+      const t = Math.max(1, toNum(e.cycleOn));
+      return a % (t + Math.max(0, toNum(e.cycleOff))) < t;
     }
     default:
       return !1;
   }
 }
-function Ze(e) {
-  return be(e.weeks) ? ne(e.startDate, 7 * be(e.weeks) - 1) : null;
+function endDate(e) {
+  return toNum(e.weeks) ? addDays(e.startDate, 7 * toNum(e.weeks) - 1) : null;
 }
-function Xe(e) {
-  const t = Ze(e);
+function weeksLeft(e) {
+  const t = endDate(e);
   if (!t) return null;
-  const n = ae(te(), t) + 1;
+  const n = daysBetween(todayIso(), t) + 1;
   return n <= 0 ? 0 : n / 7;
 }
-function _e(e) {
-  const t = et(EF(e)) + (e.split ? " · AM + PM" : "");
-  return e.cycling ? `${t} · ${ze(e)}` : t;
+function scheduleText(e) {
+  const t = schedKindText(scheduleOn(e)) + (e.split ? " · AM + PM" : "");
+  return e.cycling ? `${t} · ${cycleText(e)}` : t;
 }
-function et(e) {
+function schedKindText(e) {
   switch (e.sched) {
     case "daily":
       return "Every day";
@@ -1035,166 +1035,166 @@ function et(e) {
         ? (e.days || [])
             .slice()
             .sort()
-            .map((e) => me[e])
+            .map((e) => WEEKDAYS[e])
             .join(" · ")
         : "No days chosen";
     case "interval": {
-      const t = Math.max(1, be(e.intervalDays));
+      const t = Math.max(1, toNum(e.intervalDays));
       return 2 === t ? "Every other day" : `Every ${t} days`;
     }
     case "cycle":
-      return `${be(e.cycleOn)} on / ${be(e.cycleOff)} off`;
+      return `${toNum(e.cycleOn)} on / ${toNum(e.cycleOff)} off`;
     default:
       return "—";
   }
 }
-function tt(e) {
+function dueFraction(e) {
   let t = 0;
-  const n = e.startDate && e.startDate > te() ? e.startDate : te();
-  for (let a = 0; a < 28; a++) Ye(e, ne(n, a)) && t++;
+  const n = e.startDate && e.startDate > todayIso() ? e.startDate : todayIso();
+  for (let a = 0; a < 28; a++) isDue(e, addDays(n, a)) && t++;
   return t / 28;
 }
-function nt(e, t) {
+function nextDueDate(e, t) {
   for (let n = 0; n < 800; n++) {
-    const a = ne(t, n);
-    if (Ye(e, a)) return a;
+    const a = addDays(t, n);
+    if (isDue(e, a)) return a;
   }
   return null;
 }
-function at(e = 14, t = 6) {
+function comingUp(e = 14, t = 6) {
   const n = [];
   for (let a = 0; a < e && n.length < t; a++) {
-    const e = ne(te(), a);
-    for (const s of d.protocols)
-      if (Ye(s, e) && (0 !== a || SLO(s).length) && (n.push({ date: e, protocol: s }), n.length >= t)) break;
+    const e = addDays(todayIso(), a);
+    for (const s of appData.protocols)
+      if (isDue(s, e) && (0 !== a || openSlotsToday(s).length) && (n.push({ date: e, protocol: s }), n.length >= t)) break;
   }
   return n;
 }
-const st = (e, t, s) =>
-    d.logs.find((n) => n.protocolId === e && n.date === t && (!s || (n.slot || "am") === s)),
+const logFor = (e, t, s) =>
+    appData.logs.find((n) => n.protocolId === e && n.date === t && (!s || (n.slot || "am") === s)),
   // Doses a day on a date: AM + PM from the split start date (splitFrom) on, one dose before it.
-  SL = (e, dt) => (e && e.split && (!e.splitFrom || (dt || te()) >= e.splitFrom) ? ["am", "pm"] : [""]),
-  SLT = (e, s) => ("pm" === s ? e.time2 || "" : e.time || ""),
-  SLN = (s) => ("am" === s ? "AM" : "pm" === s ? "PM" : ""),
-  SLO = (e) => SL(e).filter((s) => !st(e.id, te(), s)),
-  ot = (e) => d.logs.filter((t) => t.date === e);
-function it(e) {
-  return gt(d.protocols.filter((t) => Ye(t, e)));
+  doseSlots = (e, dt) => (e && e.split && (!e.splitFrom || (dt || todayIso()) >= e.splitFrom) ? ["am", "pm"] : [""]),
+  slotTime = (e, s) => ("pm" === s ? e.time2 || "" : e.time || ""),
+  slotLabel = (s) => ("am" === s ? "AM" : "pm" === s ? "PM" : ""),
+  openSlotsToday = (e) => doseSlots(e).filter((s) => !logFor(e.id, todayIso(), s)),
+  logsOn = (e) => appData.logs.filter((t) => t.date === e);
+function dueOn(e) {
+  return sortProtocols(appData.protocols.filter((t) => isDue(t, e)));
 }
-function lt(e, t, s) {
-  const n = st(e, t, s);
+function slotStatus(e, t, s) {
+  const n = logFor(e, t, s);
   if (n) return n.status;
-  const a = Le(e);
-  return a && Ye(a, t) ? (t < te() ? "missed" : "scheduled") : null;
+  const a = protocolById(e);
+  return a && isDue(a, t) ? (t < todayIso() ? "missed" : "scheduled") : null;
 }
-function dt(e = 30) {
+function adherence(e = 30) {
   let t = 0,
     n = 0;
   for (let a = 0; a < e; a++) {
-    const e = ne(te(), -a);
-    for (const a of d.protocols) {
-      if (!Ye(a, e)) continue;
-      for (const x of SL(a, e)) {
+    const e = addDays(todayIso(), -a);
+    for (const a of appData.protocols) {
+      if (!isDue(a, e)) continue;
+      for (const x of doseSlots(a, e)) {
         t++;
-        const s = st(a.id, e, x);
+        const s = logFor(a.id, e, x);
         s && "taken" === s.status && n++;
       }
     }
   }
   return { sched: t, taken: n, pct: t ? Math.round((n / t) * 100) : null };
 }
-function rt(e) {
-  const t = d.logs
+function siteLastUsed(e) {
+  const t = appData.logs
     .filter((t) => t.site === e && "taken" === t.status)
     .sort((e, t) => (e.date < t.date ? 1 : -1));
   return t.length ? t[0].date : null;
 }
-function ct(e) {
-  const t = rt(e);
+function siteRest(e) {
+  const t = siteLastUsed(e);
   if (!t) return "fresh";
-  const n = ae(t, te());
+  const n = daysBetween(t, todayIso());
   return n < 3 ? "recent" : n < 7 ? "soon" : "fresh";
 }
-function ut(e) {
+function restedSite(e) {
   let t = null,
     n = "9999";
-  for (const [e] of V) {
-    const a = rt(e);
+  for (const [e] of SITES) {
+    const a = siteLastUsed(e);
     if (!a) return e;
     a < n && ((n = a), (t = e));
   }
   return t;
 }
-const pt = (e) => (Ce(e) || {}).name || "",
-  ht = (e, t) => String(e || "").localeCompare(String(t || ""), void 0, { sensitivity: "base", numeric: !0 }),
-  mt = (e) => d.protocols.some((t) => t.compoundId === e && t.active);
-function gt(e) {
-  return (e || d.protocols)
+const compoundName = (e) => (compoundById(e) || {}).name || "",
+  compareText = (e, t) => String(e || "").localeCompare(String(t || ""), void 0, { sensitivity: "base", numeric: !0 }),
+  isRunning = (e) => appData.protocols.some((t) => t.compoundId === e && t.active);
+function sortProtocols(e) {
+  return (e || appData.protocols)
     .slice()
     .sort(
       (e, t) =>
         (e.active ? 0 : 1) - (t.active ? 0 : 1) ||
-        ht(pt(e.compoundId), pt(t.compoundId)) ||
-        be(e.dose) - be(t.dose) ||
-        ht(e.id, t.id),
+        compareText(compoundName(e.compoundId), compoundName(t.compoundId)) ||
+        toNum(e.dose) - toNum(t.dose) ||
+        compareText(e.id, t.id),
     );
 }
-function vt(e) {
-  return e.slice().sort((e, t) => (mt(e) ? 0 : 1) - (mt(t) ? 0 : 1) || ht(pt(e), pt(t)));
+function sortCompoundIds(e) {
+  return e.slice().sort((e, t) => (isRunning(e) ? 0 : 1) - (isRunning(t) ? 0 : 1) || compareText(compoundName(e), compoundName(t)));
 }
-function bt(e) {
-  return (e || d.compounds)
+function sortCompounds(e) {
+  return (e || appData.compounds)
     .slice()
-    .sort((e, t) => (mt(e.id) ? 0 : 1) - (mt(t.id) ? 0 : 1) || ht(e.name, t.name));
+    .sort((e, t) => (isRunning(e.id) ? 0 : 1) - (isRunning(t.id) ? 0 : 1) || compareText(e.name, t.name));
 }
-function yt(e, t, n) {
+function runningOptgroups(e, t, n) {
   const a = e.filter(t),
     s = e.filter((e) => !t(e));
   return a.length && s.length
     ? `<optgroup label="Running">${a.map(n).join("")}</optgroup><optgroup label="Not running">${s.map(n).join("")}</optgroup>`
     : e.map(n).join("");
 }
-function ft(e) {
+function sortBatches(e) {
   return e
     .slice()
     .sort(
       (e, t) =>
-        (mt(e.compoundId) ? 0 : 1) - (mt(t.compoundId) ? 0 : 1) ||
-        ht(pt(e.compoundId), pt(t.compoundId)) ||
-        be(e.vialMg) - be(t.vialMg),
+        (isRunning(e.compoundId) ? 0 : 1) - (isRunning(t.compoundId) ? 0 : 1) ||
+        compareText(compoundName(e.compoundId), compoundName(t.compoundId)) ||
+        toNum(e.vialMg) - toNum(t.vialMg),
     );
 }
-function wt(e) {
-  return De(e).reduce((e, t) => e + be(t.sealed) * be(t.vialMg) + be(t.openMg), 0);
+function stockMg(e) {
+  return liveBatches(e).reduce((e, t) => e + toNum(t.sealed) * toNum(t.vialMg) + toNum(t.openMg), 0);
 }
-function kt(e) {
-  return De(e).reduce((e, t) => e + be(t.sealed), 0);
+function sealedCount(e) {
+  return liveBatches(e).reduce((e, t) => e + toNum(t.sealed), 0);
 }
-function St(e) {
-  return De(e).filter((e) => be(e.openMg) > 0).length;
+function openVialCount(e) {
+  return liveBatches(e).filter((e) => toNum(e.openMg) > 0).length;
 }
-function Mt(e) {
-  return d.protocols
+function dailyUse(e) {
+  return appData.protocols
     .filter((t) => t.compoundId === e && t.active)
     .reduce((e, t) => {
-      const n = Ge(t, te());
-      return e + Se(n.dose, n.unit) * tt(t) * SL(t).length;
+      const n = doseOn(t, todayIso());
+      return e + toMg(n.dose, n.unit) * dueFraction(t) * doseSlots(t).length;
     }, 0);
 }
-function xt(e) {
-  const t = d.protocols.filter((t) => t.compoundId === e && t.active);
+function dosesLeft(e) {
+  const t = appData.protocols.filter((t) => t.compoundId === e && t.active);
   if (!t.length) return null;
-  const n = Ge(t[0], te()),
-    a = Se(n.dose, n.unit);
-  return a > 0 ? Math.floor(wt(e) / a) : null;
+  const n = doseOn(t[0], todayIso()),
+    a = toMg(n.dose, n.unit);
+  return a > 0 ? Math.floor(stockMg(e) / a) : null;
 }
-function At(e) {
-  const t = Mt(e);
-  return t ? Math.floor(wt(e) / t) : null;
+function daysLeft(e) {
+  const t = dailyUse(e);
+  return t ? Math.floor(stockMg(e) / t) : null;
 }
-function $t(e) {
-  const t = At(e),
-    n = be(d.settings.targetDays) || 90;
+function stockStatus(e) {
+  const t = daysLeft(e),
+    n = toNum(appData.settings.targetDays) || 90;
   return null === t
     ? { text: "No protocol", cls: "" }
     : t <= 7
@@ -1205,75 +1205,75 @@ function $t(e) {
           ? { text: "Below target", cls: "due" }
           : { text: "Well stocked", cls: "done" };
 }
-function It(e, t, n, a) {
-  const s = qe(e);
+function takeFromStock(e, t, n, a) {
+  const s = batchById(e);
   if (!s) return null;
   let o = null;
-  const i = be(s.openMg);
-  if ((n || i < t - 1e-9) && be(s.sealed) > 0) {
+  const i = toNum(s.openMg);
+  if ((n || i < t - 1e-9) && toNum(s.sealed) > 0) {
     const e = n ? 0 : Math.max(0, i);
-    ((o = Ct(s, a)), (o.fromNew = ye(t - e, 6)), (s.openMg = Math.max(0, ye(be(s.openMg) - o.fromNew, 6))));
-  } else s.openMg = Math.max(0, ye(i - t, 6));
-  return (s.openMg <= 0 && be(s.sealed) <= 0 && (s.status = "finished"), o);
+    ((o = openNewVial(s, a)), (o.fromNew = roundTo(t - e, 6)), (s.openMg = Math.max(0, roundTo(toNum(s.openMg) - o.fromNew, 6))));
+  } else s.openMg = Math.max(0, roundTo(i - t, 6));
+  return (s.openMg <= 0 && toNum(s.sealed) <= 0 && (s.status = "finished"), o);
 }
-function Ct(e, t) {
+function openNewVial(e, t) {
   const n = {
-    tok: ve(),
+    tok: newId(),
     prevTok: e.openTok || "",
-    prevOpen: be(e.openMg),
+    prevOpen: toNum(e.openMg),
     prevRecon: e.reconDate || "",
     prevStatus: e.status || "",
     solId: "",
     water: 0,
     fromNew: 0,
   };
-  (be(t) > 0 &&
-    be(t) !== be(e.bacMl) &&
-    ((n.prevBac = null == e.bacMl ? "" : e.bacMl), (e.bacMl = String(be(t)))),
-    (e.sealed = be(e.sealed) - 1),
-    (e.openMg = be(e.vialMg)),
-    (e.reconDate = te()),
+  (toNum(t) > 0 &&
+    toNum(t) !== toNum(e.bacMl) &&
+    ((n.prevBac = null == e.bacMl ? "" : e.bacMl), (e.bacMl = String(toNum(t)))),
+    (e.sealed = toNum(e.sealed) - 1),
+    (e.openMg = toNum(e.vialMg)),
+    (e.reconDate = todayIso()),
     (e.status = "open"),
     (e.openTok = n.tok));
-  const a = be(e.bacMl);
+  const a = toNum(e.bacMl);
   if (a) {
-    const e = $n(a);
+    const e = useWater(a);
     e && ((n.solId = e), (n.water = a));
   }
   return n;
 }
-function Lt(e, t) {
+function undoOpenVial(e, t) {
   if (
-    ((e.sealed = be(e.sealed) + 1),
-    (e.openMg = be(t.prevOpen)),
+    ((e.sealed = toNum(e.sealed) + 1),
+    (e.openMg = toNum(t.prevOpen)),
     (e.reconDate = t.prevRecon || ""),
     (e.openTok = t.prevTok || ""),
-    (e.status = t.prevStatus || (be(t.prevOpen) > 0 ? "open" : "sealed")),
+    (e.status = t.prevStatus || (toNum(t.prevOpen) > 0 ? "open" : "sealed")),
     "prevBac" in t && (e.bacMl = t.prevBac),
     t.solId)
   ) {
-    const e = d.solutions.find((e) => e.id === t.solId);
-    e && ((e.ml = ye(be(e.ml) + be(t.water), 3)), wn("mix"));
+    const e = appData.solutions.find((e) => e.id === t.solId);
+    e && ((e.ml = roundTo(toNum(e.ml) + toNum(t.water), 3)), returnSupplies("mix"));
   }
 }
-function qt(e, t) {
-  const n = qe(e);
+function returnToStock(e, t) {
+  const n = batchById(e);
   n &&
-    ((n.openMg = Math.min(be(n.vialMg), ye(be(n.openMg) + t, 6))),
+    ((n.openMg = Math.min(toNum(n.vialMg), roundTo(toNum(n.openMg) + t, 6))),
     "finished" === n.status && (n.status = "open"));
 }
-function Dt(e) {
-  const t = be(e.startVials) * be(e.vialMg);
+function usedPercent(e) {
+  const t = toNum(e.startVials) * toNum(e.vialMg);
   if (!t) return 0;
-  const n = be(e.sealed) * be(e.vialMg) + be(e.openMg);
+  const n = toNum(e.sealed) * toNum(e.vialMg) + toNum(e.openMg);
   return Math.max(0, Math.min(100, 100 * (1 - n / t)));
 }
 function halfLifeOf(c) {
   if (!c) return 0;
-  const v = be(c.halfLife);
+  const v = toNum(c.halfLife);
   if (v) return v;
-  const r = u.find((x) => y(x[0]) === y(c.name));
-  return r ? be(r[1]) : 0;
+  const r = COMPOUND_LIST.find((x) => canonicalKey(x[0]) === canonicalKey(c.name));
+  return r ? toNum(r[1]) : 0;
 }
 // b78: level estimate with absorption. Each dose is absorbed over its time to peak, then cleared by its
 // half-life (one-compartment model, first-order absorption):
@@ -1286,7 +1286,7 @@ const PEAK_TIMES = new Map(
     ["Tirzepatide", 24, "label: median 24 h (8–72 h)"],
     ["Liraglutide", 10, "label: 8–12 h"],
     ["Cagrilintide", 48, "phase 1b trial: median 24–72 h"],
-  ].map((x) => [y(x[0]), x]),
+  ].map((x) => [canonicalKey(x[0]), x]),
 );
 function roughPeakTime(route, hl) {
   return "IV" === route ? 0 : "Oral" === route ? 1.5 : "Nasal" === route ? 0.5 : "Topical" === route ? 4 : hl >= 24 ? 24 : 0.5;
@@ -1295,9 +1295,9 @@ function roughPeakTime(route, hl) {
 function timeToPeak(c, route) {
   const r = route || (c && c.route) || "SubQ";
   if (!c || "IV" === r) return { h: 0, src: "published", note: "IV: no absorption delay" };
-  const v = be(c.tPeak);
+  const v = toNum(c.tPeak);
   if (v > 0) return { h: v, src: "yours", note: "your setting" };
-  const k = PEAK_TIMES.get(y(c.name));
+  const k = PEAK_TIMES.get(canonicalKey(c.name));
   if (k) return { h: k[1], src: "published", note: k[2] };
   return { h: roughPeakTime(r, halfLifeOf(c)), src: "rough", note: "rough guess for " + r + (halfLifeOf(c) >= 24 && /SubQ|IM/.test(r) ? ", long-acting" : "") };
 }
@@ -1326,25 +1326,25 @@ function fractionInBody(ke, ka, h) {
 // taken doses of one compound as [time ms, dose, ka, ignore-after hours], oldest first; rebuilt after each save
 let doseCache = null;
 function doseList(cid) {
-  (doseCache && doseCache.v === saveCount && doseCache.d === d && doseCache.logs === d.logs) || (doseCache = { v: saveCount, d: d, logs: d.logs, m: new Map() });
+  (doseCache && doseCache.v === saveCount && doseCache.d === appData && doseCache.logs === appData.logs) || (doseCache = { v: saveCount, d: appData, logs: appData.logs, m: new Map() });
   let r = doseCache.m.get(cid);
   if (r) return r;
   r = [];
-  const c = Ce(cid),
+  const c = compoundById(cid),
     hl = c ? halfLifeOf(c) : 0;
   if (hl) {
     const ke = Math.LN2 / hl;
-    for (const g of d.logs) {
+    for (const g of appData.logs) {
       if (g.compoundId !== cid || "taken" !== g.status) continue;
       const ka = absorbRate(ke, timeToPeak(c, g.route).h);
-      r.push([new Date(g.at || g.date + "T12:00").getTime(), be(g.doseMg), ka, 30 * Math.max(hl, isFinite(ka) ? Math.LN2 / ka : 0)]);
+      r.push([new Date(g.at || g.date + "T12:00").getTime(), toNum(g.doseMg), ka, 30 * Math.max(hl, isFinite(ka) ? Math.LN2 / ka : 0)]);
     }
     r.sort((a, b) => a[0] - b[0]);
   }
   return (doseCache.m.set(cid, r), r);
 }
 function levelAt(e, t) {
-  const n = Ce(e),
+  const n = compoundById(e),
     a = n ? halfLifeOf(n) : 0;
   if (!a) return null;
   const ke = Math.LN2 / a;
@@ -1358,7 +1358,7 @@ function levelAt(e, t) {
 }
 // highest estimated level over the last `t` days (3-hour steps), used as the bar's full width
 function recentPeak(e, t = 30) {
-  const n = Ce(e);
+  const n = compoundById(e);
   if (!n || !halfLifeOf(n) || !doseList(e).length) return 0;
   let a = 0;
   const s = Date.now();
@@ -1368,42 +1368,42 @@ function recentPeak(e, t = 30) {
   }
   return a;
 }
-function Pt(e) {
+function lastShot(e) {
   return (
-    d.logs
+    appData.logs
       .filter((t) => t.compoundId === e && "taken" === t.status)
       .sort((e, t) => ((e.at || e.date) < (t.at || t.date) ? 1 : -1))[0] || null
   );
 }
-const Ot = (e) => document.querySelector(e);
-function Bt(e) {
+const qs = (e) => document.querySelector(e);
+function htmlEl(e) {
   const t = document.createElement("template");
   return ((t.innerHTML = e.trim()), t.content.firstElementChild);
 }
-function Ht(e) {
+function esc(e) {
   return String(null == e ? "" : e).replace(
     /[&<>"']/g,
     (e) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[e],
   );
 }
-function Ut() {
+function compoundNameOptions() {
   const e = new Set(),
     t = [];
-  for (const n of bt()) {
+  for (const n of sortCompounds()) {
     const a = String(n.name || "").trim();
     a && !e.has(a.toLowerCase()) && (e.add(a.toLowerCase()), t.push(a));
   }
-  for (const n of u) e.has(n[0].toLowerCase()) || (e.add(n[0].toLowerCase()), t.push(n[0]));
+  for (const n of COMPOUND_LIST) e.has(n[0].toLowerCase()) || (e.add(n[0].toLowerCase()), t.push(n[0]));
   return t;
 }
-function Qt(e, t) {
+function comboBox(e, t) {
   if (!e || e.dataset.combo) return;
   const n = document.activeElement === e;
   ((e.dataset.combo = "1"), e.setAttribute("autocomplete", "off"), e.removeAttribute("list"));
   const a = document.createElement("div");
   ((a.className = "combo"), e.parentNode.insertBefore(a, e), a.appendChild(e));
-  const s = Bt('<button type="button" class="combo-btn" tabindex="-1" aria-label="Show the list">▾</button>'),
-    o = Bt('<div class="combo-list" hidden></div>');
+  const s = htmlEl('<button type="button" class="combo-btn" tabindex="-1" aria-label="Show the list">▾</button>'),
+    o = htmlEl('<div class="combo-list" hidden></div>');
   (a.appendChild(s), a.appendChild(o));
   let i = [],
     l = -1,
@@ -1428,13 +1428,13 @@ function Qt(e, t) {
       const a = n ? "" : e.value.trim().toLowerCase();
       if (((i = t().filter((e) => !a || e.toLowerCase().includes(a))), (o.innerHTML = ""), i.length))
         for (const e of i) {
-          const t = Bt(`<button type="button" class="combo-opt">${Ht(e)}</button>`);
+          const t = htmlEl(`<button type="button" class="combo-opt">${esc(e)}</button>`);
           (t.addEventListener("mousedown", (t) => {
             (t.preventDefault(), u(e));
           }),
             o.appendChild(t));
         }
-      else o.appendChild(Bt('<div class="combo-empty">Nothing matches — type your own name.</div>'));
+      else o.appendChild(htmlEl('<div class="combo-empty">Nothing matches — type your own name.</div>'));
       ((l = -1), (o.hidden = !1));
     };
   (s.addEventListener("mousedown", (e) => e.preventDefault()),
@@ -1459,30 +1459,30 @@ function Qt(e, t) {
     }),
     n && e.focus());
 }
-let Nt;
+let comboTimer;
 function toast(e) {
-  const t = Ot("#toast");
+  const t = qs("#toast");
   ((t.textContent = e),
     (t.hidden = !1),
-    clearTimeout(Nt),
-    (Nt = setTimeout(
+    clearTimeout(comboTimer),
+    (comboTimer = setTimeout(
       () => {
         t.hidden = !0;
       },
       Math.max(3200, 60 * String(e).length),
     )));
 }
-function Vt(e, t, n) {
-  ((Ot("#modal").innerHTML =
-    `<h3>${Ht(e)}<button class="x" data-close aria-label="Close">×</button></h3>\n    <div class="body">${t}</div><div class="foot">${n}</div>`),
-    (Ot("#scrim").hidden = !1));
-  const a = Ot("#modal").querySelector("input,select,textarea");
+function openForm(e, t, n) {
+  ((qs("#modal").innerHTML =
+    `<h3>${esc(e)}<button class="x" data-close aria-label="Close">×</button></h3>\n    <div class="body">${t}</div><div class="foot">${n}</div>`),
+    (qs("#scrim").hidden = !1));
+  const a = qs("#modal").querySelector("input,select,textarea");
   a && a.focus();
 }
-function Rt() {
-  ((Ot("#scrim").hidden = !0), (Ot("#modal").innerHTML = ""), r.dirty && ((r.dirty = !1), redrawPage()));
+function closeForm() {
+  ((qs("#scrim").hidden = !0), (qs("#modal").innerHTML = ""), ui.dirty && ((ui.dirty = !1), redrawPage()));
 }
-function Wt(e, t, n) {
+function syringeSvg(e, t, n) {
   const a = t || 100,
     s = (n = n || {}).compact ? 64 : 92,
     o = n.compact ? 16 : 26,
@@ -1500,64 +1500,64 @@ function Wt(e, t, n) {
         !n.compact &&
         (u += `<text x="${t}" y="${o + 22}" font-size="9" font-family="ui-monospace,monospace" fill="var(--ink-3)" text-anchor="middle">${e}</text>`));
   }
-  return `<svg viewBox="0 0 520 ${s}" width="100%" height="${s}" role="img"\n    aria-label="Syringe filled to ${fe(e, 1)} of ${a} units">\n    <rect x="26" y="${o}" width="404" height="${i}" rx="3" fill="var(--field)" stroke="var(--rule)"/>\n    <rect x="26" y="${o}" width="${Math.max(0, d - 26)}" height="${i}" rx="3" fill="var(--signal-soft)"/>\n    <line x1="${d}" y1="${o - 7}" x2="${d}" y2="${o + i + 2}" stroke="var(--signal)" stroke-width="2"/>\n    ${u}\n    <rect x="430" y="${o + 7}" width="14" height="${i - 14}" fill="var(--ink-3)"/>\n    <line x1="444" y1="${o + i / 2}" x2="504" y2="${o + i / 2}" stroke="var(--ink-3)" stroke-width="2"/>\n    <rect x="12" y="${o - 4}" width="10" height="${i + 8}" rx="2" fill="var(--ink-3)"/>\n    <text x="${d}" y="${o - 11}" font-size="11" font-family="ui-monospace,monospace" fill="var(--signal)"\n      text-anchor="${l > 0.85 ? "end" : "middle"}">${fe(e, 1)}u</text></svg>`;
+  return `<svg viewBox="0 0 520 ${s}" width="100%" height="${s}" role="img"\n    aria-label="Syringe filled to ${fmt(e, 1)} of ${a} units">\n    <rect x="26" y="${o}" width="404" height="${i}" rx="3" fill="var(--field)" stroke="var(--rule)"/>\n    <rect x="26" y="${o}" width="${Math.max(0, d - 26)}" height="${i}" rx="3" fill="var(--signal-soft)"/>\n    <line x1="${d}" y1="${o - 7}" x2="${d}" y2="${o + i + 2}" stroke="var(--signal)" stroke-width="2"/>\n    ${u}\n    <rect x="430" y="${o + 7}" width="14" height="${i - 14}" fill="var(--ink-3)"/>\n    <line x1="444" y1="${o + i / 2}" x2="504" y2="${o + i / 2}" stroke="var(--ink-3)" stroke-width="2"/>\n    <rect x="12" y="${o - 4}" width="10" height="${i + 8}" rx="2" fill="var(--ink-3)"/>\n    <text x="${d}" y="${o - 11}" font-size="11" font-family="ui-monospace,monospace" fill="var(--signal)"\n      text-anchor="${l > 0.85 ? "end" : "middle"}">${fmt(e, 1)}u</text></svg>`;
 }
-function jt(e, t, n) {
+function vialSvg(e, t, n) {
   n = n || 34;
   const a = Math.max(0, Math.min(1, e)) * (n - 12);
   return `<svg width="15" height="${n}" viewBox="0 0 15 ${n}" aria-hidden="true">\n    <rect x="2.5" y="5" width="10" height="${n - 7}" rx="2" fill="var(--field)" stroke="var(--rule)"/>\n    <rect x="2.5" y="${n - 2 - a}" width="10" height="${a}" rx="2" fill="${t}" opacity=".8"/>\n    <rect x="1" y="1.5" width="13" height="4" rx="1.5" fill="var(--ink-3)"/></svg>`;
 }
-function Gt(e, t, n) {
+function sparkSvg(e, t, n) {
   n = n || 110;
   const a = Math.max(...e, 1e-9),
     s = Math.min(...e, 0),
     o = a - s || 1,
     i = e
       .map((t, a) => [8 + (a / (e.length - 1 || 1)) * 504, n - 8 - ((t - s) / o) * (n - 16)])
-      .map((e, t) => (t ? "L" : "M") + ye(e[0], 1) + " " + ye(e[1], 1))
+      .map((e, t) => (t ? "L" : "M") + roundTo(e[0], 1) + " " + roundTo(e[1], 1))
       .join(" ");
-  return `<svg viewBox="0 0 520 ${n}" width="100%" height="${n}" preserveAspectRatio="none" role="img" aria-label="trend">\n    <path d="${i} L 512 ${n - 8} L 8 ${n - 8} Z" fill="var(--signal-soft)"/>\n    <path d="${i}" fill="none" stroke="var(--signal)" stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>\n    <text x="8" y="12" font-size="10" font-family="ui-monospace,monospace" fill="var(--ink-3)">peak ${fe(a, 2)} ${t}</text></svg>`;
+  return `<svg viewBox="0 0 520 ${n}" width="100%" height="${n}" preserveAspectRatio="none" role="img" aria-label="trend">\n    <path d="${i} L 512 ${n - 8} L 8 ${n - 8} Z" fill="var(--signal-soft)"/>\n    <path d="${i}" fill="none" stroke="var(--signal)" stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>\n    <text x="8" y="12" font-size="10" font-family="ui-monospace,monospace" fill="var(--ink-3)">peak ${fmt(a, 2)} ${t}</text></svg>`;
 }
 document.addEventListener("keydown", (e) => {
-  "Escape" !== e.key || Ot("#scrim").hidden || Rt();
+  "Escape" !== e.key || qs("#scrim").hidden || closeForm();
 });
-const Kt = 307,
-  Jt = 776,
-  zt =
+const FIG_W = 307,
+  FIG_H = 776,
+  FIG_IMG =
     "data:image/webp;base64,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",
-  Yt = `<image href="${zt}" x="0" y="0" width="307" height="776" aria-hidden="true"/>`,
-  Zt = Yt + '<ellipse class="fignavel" cx="153" cy="301" rx="2.6" ry="3.2"/>',
-  Xt =
-    Yt +
+  FIG_IMAGE_TAG = `<image href="${FIG_IMG}" x="0" y="0" width="307" height="776" aria-hidden="true"/>`,
+  FIG_FRONT = FIG_IMAGE_TAG + '<ellipse class="fignavel" cx="153" cy="301" rx="2.6" ry="3.2"/>',
+  FIG_BACK =
+    FIG_IMAGE_TAG +
     '<path class="figmark" d="M153 132V392"/><path class="figmark" d="M112 176Q124 214 146 204"/><path class="figmark" d="M194 176Q182 214 160 204"/><path class="figmark" d="M90 418Q116 432 149 424"/><path class="figmark" d="M216 418Q190 432 157 424"/>';
-function _t(e, t) {
-  return V.filter((n) => n[2] === e && (!t || n[5].includes(t)));
+function sitesFor(e, t) {
+  return SITES.filter((n) => n[2] === e && (!t || n[5].includes(t)));
 }
-function en(e) {
-  return ct(e);
+function siteRestFor(e) {
+  return siteRest(e);
 }
-function tn(e, t) {
-  const n = rt(e);
-  return t + (n ? " — last used " + se(n) + " (" + ae(n, te()) + "d ago)" : " — never used");
+function siteTitle(e, t) {
+  const n = siteLastUsed(e);
+  return t + (n ? " — last used " + shortDate(n) + " (" + daysBetween(n, todayIso()) + "d ago)" : " — never used");
 }
-function nn(e, t, n, a) {
+function dotRadius(e, t, n, a) {
   let s = 1e9;
   for (const o of e) o[0] !== t && (s = Math.min(s, Math.hypot(o[3] - n, o[4] - a)));
   return Math.max(12, Math.min(24, s / 2));
 }
-function an(e, t, n, a) {
-  const s = _t(e, a);
-  return `<svg class="bodymap photo" viewBox="0 0 307 776" role="group" aria-label="${e} ${a || ""} injection sites">\n    ${"front" === e ? Zt : Xt}\n    ${s.map(([e, a, , o, i]) => `<g class="site" data-site="${e}" data-on="${t === e ? 1 : 0}"\n        data-rest="${n ? en(e) : ""}" role="button" tabindex="0" aria-label="${Ht(a)}">\n        <title>${Ht(tn(e, a))}</title>\n        <circle cx="${o}" cy="${i}" r="11"/><circle class="hit" cx="${o}" cy="${i}" r="${ye(nn(s, e, o, i), 1)}"/></g>`).join("")}\n  </svg>`;
+function bodyMapSvg(e, t, n, a) {
+  const s = sitesFor(e, a);
+  return `<svg class="bodymap photo" viewBox="0 0 307 776" role="group" aria-label="${e} ${a || ""} injection sites">\n    ${"front" === e ? FIG_FRONT : FIG_BACK}\n    ${s.map(([e, a, , o, i]) => `<g class="site" data-site="${e}" data-on="${t === e ? 1 : 0}"\n        data-rest="${n ? siteRestFor(e) : ""}" role="button" tabindex="0" aria-label="${esc(a)}">\n        <title>${esc(siteTitle(e, a))}</title>\n        <circle cx="${o}" cy="${i}" r="11"/><circle class="hit" cx="${o}" cy="${i}" r="${roundTo(dotRadius(s, e, o, i), 1)}"/></g>`).join("")}\n  </svg>`;
 }
-function sn(e, t, n) {
-  return `<div class="sitepick">\n    ${an(e, t, !0, n)}\n    <div class="sitelist">${_t(e, n)
+function sitePicker(e, t, n) {
+  return `<div class="sitepick">\n    ${bodyMapSvg(e, t, !0, n)}\n    <div class="sitelist">${sitesFor(e, n)
     .map(
       ([e, n]) =>
-        `<button class="sitebtn" data-site="${e}" data-on="${t === e ? 1 : 0}" data-rest="${en(e)}"\n        title="${Ht(tn(e, n))}">${Ht(n)}</button>`,
+        `<button class="sitebtn" data-site="${e}" data-on="${t === e ? 1 : 0}" data-rest="${siteRestFor(e)}"\n        title="${esc(siteTitle(e, n))}">${esc(n)}</button>`,
     )
     .join("")}</div></div>`;
 }
-const on = {
+const ICONS = {
   help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r=".6" fill="currentColor"/></svg>',
   today:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="8.5"/></svg>',
@@ -1575,22 +1575,22 @@ const on = {
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 17l5-6 4 3.5L21 6"/><path d="M3 21h18"/></svg>',
   set: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.2M12 19.3v2.2M21.5 12h-2.2M4.7 12H2.5M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9L5.3 5.3"/></svg>',
 };
-function ln() {
+function navTabs() {
   const e = [
-    ["instructions", "Instructions", on.help],
-    ["today", "Today", on.today],
-    ["protocols", "Protocols", on.proto],
-    ["stock", "Stock", on.stock],
-    ["history", "History", on.hist],
+    ["instructions", "Instructions", ICONS.help],
+    ["today", "Today", ICONS.today],
+    ["protocols", "Protocols", ICONS.proto],
+    ["stock", "Stock", ICONS.stock],
+    ["history", "History", ICONS.hist],
     ["labs", "Labs", LAB_ICON],
     ...(COMMUNITY ? [] : [["insights", "Insights", INS_ICON]]),
-    ["labels", "Labels", on.label],
-    ["tools", "Tools", on.tools],
-    ["library", "Library", on.lib],
+    ["labels", "Labels", ICONS.label],
+    ["tools", "Tools", ICONS.tools],
+    ["library", "Library", ICONS.lib],
   ];
   return (
-    d.settings.trackWeight && e.push(["weight", "Weight", on.weight]),
-    e.push(["settings", "Settings", on.set]),
+    appData.settings.trackWeight && e.push(["weight", "Weight", ICONS.weight]),
+    e.push(["settings", "Settings", ICONS.set]),
     e
   );
 }
@@ -1601,146 +1601,146 @@ function appKindBadge() {
   return `<span class="appkind">${APP_KIND}</span>`;
 }
 function appKindLine(more) {
-  return `<div class="appkind-line">${appKindBadge()}<span>You are in the <b>${APP_KIND}</b> app (${Ht(location.hostname || "this file")}).${more ? " " + more : ""}</span></div>`;
+  return `<div class="appkind-line">${appKindBadge()}<span>You are in the <b>${APP_KIND}</b> app (${esc(location.hostname || "this file")}).${more ? " " + more : ""}</span></div>`;
 }
-function dn() {
-  const e = it(te()).reduce((a, e) => a + SLO(e).length, 0),
-    t = Ot("#rail");
+function drawRail() {
+  const e = dueOn(todayIso()).reduce((a, e) => a + openSlotsToday(e).length, 0),
+    t = qs("#rail");
   t.innerHTML = "";
-  const n = Bt(
+  const n = htmlEl(
     '<div class="brand"><b>Protocol</b>' + appKindBadge() + '<button class="addbtn" id="quickAdd" title="Log a shot" aria-label="Log a shot">+</button></div>',
   );
   (n.querySelector("#quickAdd").addEventListener("click", () => {
-    ((r.tab = "log"), (r.logDraft = null), redrawPage());
+    ((ui.tab = "log"), (ui.logDraft = null), redrawPage());
   }),
     t.appendChild(n));
-  for (const [n, a, s] of ln()) {
-    const o = Bt(
-      `<button class="navbtn" aria-current="${r.tab === n}">${s}<span>${a}</span>${"today" === n && e ? `<span class="dotcount">${e}</span>` : ""}</button>`,
+  for (const [n, a, s] of navTabs()) {
+    const o = htmlEl(
+      `<button class="navbtn" aria-current="${ui.tab === n}">${s}<span>${a}</span>${"today" === n && e ? `<span class="dotcount">${e}</span>` : ""}</button>`,
     );
     (o.addEventListener("click", () => {
-      ((r.tab = n), (r.sel = null), (r.labTest = null), (r.labHelp = !1), (r.insOpen = null), redrawPage());
+      ((ui.tab = n), (ui.sel = null), (ui.labTest = null), (ui.labHelp = !1), (ui.insOpen = null), redrawPage());
     }),
       t.appendChild(o));
   }
   t.appendChild(
-    Bt(
-      `<div class="railfoot">A log, not medical advice.<br>\n    &copy; 2026 Korah Peptides. All rights reserved.<br>\n    <span class="mono" style="font-size:10.5px">Build ${Ht(o)}</span></div>`,
+    htmlEl(
+      `<div class="railfoot">A log, not medical advice.<br>\n    &copy; 2026 Korah Peptides. All rights reserved.<br>\n    <span class="mono" style="font-size:10.5px">Build ${esc(BUILD_STAMP)}</span></div>`,
     ),
   );
 }
-function rn() {
-  const e = te(),
-    t = it(e),
-    n = t.flatMap((t) => SLO(t)),
-    a = Bt('<div class="stack"></div>'),
-    s = d.settings.name ? ", " + d.settings.name : "";
+function todayView() {
+  const e = todayIso(),
+    t = dueOn(e),
+    n = t.flatMap((t) => openSlotsToday(t)),
+    a = htmlEl('<div class="stack"></div>'),
+    s = appData.settings.name ? ", " + appData.settings.name : "";
   if (
     (a.appendChild(
-      Bt(
-        `<div class="head"><div>\n    <h1>Today${Ht(s)}</h1>\n    <p>${n.length ? `${n.length} shot${n.length > 1 ? "s" : ""} due.` : t.length ? "Everything due today is logged." : "Nothing scheduled today."}</p></div>\n    <div class="row">${d.protocols.length ? '<button class="btn" data-go="log">Log a shot</button>' : ""}</div></div>`,
+      htmlEl(
+        `<div class="head"><div>\n    <h1>Today${esc(s)}</h1>\n    <p>${n.length ? `${n.length} shot${n.length > 1 ? "s" : ""} due.` : t.length ? "Everything due today is logged." : "Nothing scheduled today."}</p></div>\n    <div class="row">${appData.protocols.length ? '<button class="btn" data-go="log">Log a shot</button>' : ""}</div></div>`,
       ),
     ),
-    !d.protocols.length)
+    !appData.protocols.length)
   ) {
-    const e = Bt(
+    const e = htmlEl(
       '<div class="panel"><div class="empty"><b>Set up your first protocol</b>\n      A protocol is one compound, one dose and one schedule. Stock and the draw follow from it.<br><br>\n      <button class="btn" data-newproto="1">New protocol</button></div></div>',
     );
     return (a.appendChild(e), a);
   }
-  const o = Bt('<div class="split"></div>'),
-    i = Bt('<div class="stack"></div>'),
+  const o = htmlEl('<div class="split"></div>'),
+    i = htmlEl('<div class="stack"></div>'),
     l = t
-      .flatMap((t) => SL(t).map((s) => ({ p: t, sl: s, log: st(t.id, e, s) })))
+      .flatMap((t) => doseSlots(t).map((s) => ({ p: t, sl: s, log: logFor(t.id, e, s) })))
       .sort((e, t) => {
         const n = e.log ? 1 : 0,
           a = t.log ? 1 : 0;
         return n !== a
           ? n - a
-          : (SLT(e.p, e.sl) || "99:99").localeCompare(SLT(t.p, t.sl) || "99:99") ||
-              ht(pt(e.p.compoundId), pt(t.p.compoundId));
+          : (slotTime(e.p, e.sl) || "99:99").localeCompare(slotTime(t.p, t.sl) || "99:99") ||
+              compareText(compoundName(e.p.compoundId), compoundName(t.p.compoundId));
       }),
-    r = Bt(
-      `<div class="panel"><h2><span class="hdrwrap">Today's schedule<span class="hdrdate">${Ht(de(e))}</span></span>\n    <a href="#" data-go="history">Calendar</a></h2><div class="pbody"><div class="sched" id="sc"></div></div></div>`,
+    r = htmlEl(
+      `<div class="panel"><h2><span class="hdrwrap">Today's schedule<span class="hdrdate">${esc(fullDate(e))}</span></span>\n    <a href="#" data-go="history">Calendar</a></h2><div class="pbody"><div class="sched" id="sc"></div></div></div>`,
     ),
     c = r.querySelector("#sc");
-  l.length || c.appendChild(Bt('<div class="empty">Nothing scheduled today.</div>'));
+  l.length || c.appendChild(htmlEl('<div class="empty">Nothing scheduled today.</div>'));
   for (const { p: e, log: t, sl: sl } of l) {
-    const n = Ce(e.compoundId),
-      a = Ue(e),
-      s = ue(SLT(e, sl)),
+    const n = compoundById(e.compoundId),
+      a = doseMath(e),
+      s = splitTime(slotTime(e, sl)),
       o = t ? t.status : "due",
       ds = sl ? ` data-slot="${sl}"` : "";
     c.appendChild(
-      Bt(
-        `<div class="schedrow" data-s="${o}">\n      <span class="schedbar"></span>\n      <button class="schedinner" data-logfor="${e.id}"${ds}>\n        <span class="schedtime">${s ? `<b>${s.t}</b><small>${s.ap}</small>` : sl ? `<b>${SLN(sl)}</b>` : "<i>Any<br>time</i>"}</span>\n        <span class="schedmain"><b>${Ht(n.name)}</b>\n          <span>${sl ? SLN(sl) + " dose · " : ""}${Ht(fe(be(a.dose), 3))}${Ht("iu" === a.unit ? "IU" : a.unit)}${a.units ? ` · ${fe(a.units, a.units % 1 ? 1 : 0)} units` : ""}${a.phase && a.phase.of ? ` · phase ${a.phase.phase}/${a.phase.of}` : ""}</span></span>\n      </button>\n      <span class="schedact">${"taken" === o ? `<button class="donebtn" data-undop="${e.id}"${ds} title="Logged — tap to undo">✓</button>` : "missed" === o ? `<button class="skipbtn" data-undop="${e.id}"${ds} title="Missed — tap to clear">✕</button>` : `<button class="logbtn" data-logp="${e.id}"${ds}>Log</button>`}</span>\n    </div>`,
+      htmlEl(
+        `<div class="schedrow" data-s="${o}">\n      <span class="schedbar"></span>\n      <button class="schedinner" data-logfor="${e.id}"${ds}>\n        <span class="schedtime">${s ? `<b>${s.t}</b><small>${s.ap}</small>` : sl ? `<b>${slotLabel(sl)}</b>` : "<i>Any<br>time</i>"}</span>\n        <span class="schedmain"><b>${esc(n.name)}</b>\n          <span>${sl ? slotLabel(sl) + " dose · " : ""}${esc(fmt(toNum(a.dose), 3))}${esc("iu" === a.unit ? "IU" : a.unit)}${a.units ? ` · ${fmt(a.units, a.units % 1 ? 1 : 0)} units` : ""}${a.phase && a.phase.of ? ` · phase ${a.phase.phase}/${a.phase.of}` : ""}</span></span>\n      </button>\n      <span class="schedact">${"taken" === o ? `<button class="donebtn" data-undop="${e.id}"${ds} title="Logged — tap to undo">✓</button>` : "missed" === o ? `<button class="skipbtn" data-undop="${e.id}"${ds} title="Missed — tap to clear">✕</button>` : `<button class="logbtn" data-logp="${e.id}"${ds}>Log</button>`}</span>\n    </div>`,
       ),
     );
   }
   i.appendChild(r);
-  const u = at(21, 5).filter((t) => t.date !== e);
+  const u = comingUp(21, 5).filter((t) => t.date !== e);
   if (u.length) {
-    const e = Bt('<div class="panel"><h2>Coming up</h2><div id="nu"></div></div>'),
+    const e = htmlEl('<div class="panel"><h2>Coming up</h2><div id="nu"></div></div>'),
       t = e.querySelector("#nu");
     for (const { date: e, protocol: n } of u) {
-      const a = Ce(n.compoundId),
-        s = ue(n.time);
+      const a = compoundById(n.compoundId),
+        s = splitTime(n.time);
       t.appendChild(
-        Bt(
-          `<div class="listrow"><span class="cbar" style="background:${a.color}"></span>\n        <span style="width:104px;flex:none" class="lmeta">${Ht(ce(e))}${s ? ` · ${s.t}${s.ap ? " " + s.ap.toLowerCase() : ""}` : ""}</span>\n        <span><span class="lname">${Ht(a.name)}</span><span class="lmeta">${((e) => `${Ht(fe(be(e.dose), 3))} ${Ht("iu" === e.unit ? "IU" : e.unit)}`)(Ge(n, e))}${n.split ? " · AM + PM" : ""}</span></span>\n      </div>`,
+        htmlEl(
+          `<div class="listrow"><span class="cbar" style="background:${a.color}"></span>\n        <span style="width:104px;flex:none" class="lmeta">${esc(relativeDay(e))}${s ? ` · ${s.t}${s.ap ? " " + s.ap.toLowerCase() : ""}` : ""}</span>\n        <span><span class="lname">${esc(a.name)}</span><span class="lmeta">${((e) => `${esc(fmt(toNum(e.dose), 3))} ${esc("iu" === e.unit ? "IU" : e.unit)}`)(doseOn(n, e))}${n.split ? " · AM + PM" : ""}</span></span>\n      </div>`,
         ),
       );
     }
     i.appendChild(e);
   }
   o.appendChild(i);
-  const p = Bt('<div class="stack"></div>'),
-    h = vt([...new Set(d.protocols.map((e) => e.compoundId))]).filter((e) => halfLifeOf(Ce(e)));
+  const p = htmlEl('<div class="stack"></div>'),
+    h = sortCompoundIds([...new Set(appData.protocols.map((e) => e.compoundId))]).filter((e) => halfLifeOf(compoundById(e)));
   if (h.length) {
-    const e = Bt(
+    const e = htmlEl(
         '<div class="panel"><h2>Estimated in your system</h2><div class="pbody" id="lv"></div></div>',
       ),
       t = e.querySelector("#lv");
     for (const e of h) {
-      const n = Ce(e),
+      const n = compoundById(e),
         a = levelAt(e, Date.now()),
         s = Math.max(recentPeak(e), halfLifeOf(n) ? 1e-9 : 0),
-        o = Pt(e),
-        i = o ? ae(o.date, te()) : null;
+        o = lastShot(e),
+        i = o ? daysBetween(o.date, todayIso()) : null;
       t.appendChild(
-        Bt(
-          `<div style="margin-bottom:14px">\n        <div class="spread"><b>${Ht(n.name)}</b><b class="mono">${Ht($e(a, n))}</b></div>\n        <div class="tiny muted" style="margin:1px 0 6px">${o ? `Last shot ${0 === i ? "today" : 1 === i ? "yesterday" : i + " days ago"} · ${Ht($e(be(o.doseMg), n))}` : "Nothing logged yet"}</div>\n        <div class="bar"><i style="width:${s > 0 ? Math.min(100, (a / s) * 100) : 0}%;background:${n.color}"></i></div>\n      </div>`,
+        htmlEl(
+          `<div style="margin-bottom:14px">\n        <div class="spread"><b>${esc(n.name)}</b><b class="mono">${esc(fmtAmount(a, n))}</b></div>\n        <div class="tiny muted" style="margin:1px 0 6px">${o ? `Last shot ${0 === i ? "today" : 1 === i ? "yesterday" : i + " days ago"} · ${esc(fmtAmount(toNum(o.doseMg), n))}` : "Nothing logged yet"}</div>\n        <div class="bar"><i style="width:${s > 0 ? Math.min(100, (a / s) * 100) : 0}%;background:${n.color}"></i></div>\n      </div>`,
         ),
       );
     }
     (t.appendChild(
-      Bt(
+      htmlEl(
         '<p class="tiny muted" style="margin:0">Worked out from your logged shots: each is absorbed over its time to peak, then cleared by its half-life. The bar is against each compound\'s highest level in the last 30 days. An estimate, not a clinical figure.</p>',
       ),
     ),
       p.appendChild(e));
   }
-  const m = Bt(
+  const m = htmlEl(
       '<div class="panel"><h2>All stock<a href="#" data-go="stock">View all</a></h2><div id="st"></div></div>',
     ),
     g = m.querySelector("#st"),
-    v = [...new Set(d.batches.filter((e) => "finished" !== e.status).map((e) => e.compoundId))];
-  v.length || g.appendChild(Bt('<div class="empty tiny">Nothing in stock yet.</div>'));
+    v = [...new Set(appData.batches.filter((e) => "finished" !== e.status).map((e) => e.compoundId))];
+  v.length || g.appendChild(htmlEl('<div class="empty tiny">Nothing in stock yet.</div>'));
   for (const e of v) {
-    const t = Ce(e),
-      n = At(e);
-    ($t(e),
+    const t = compoundById(e),
+      n = daysLeft(e);
+    (stockStatus(e),
       g.appendChild(
-        Bt(
-          `<div class="listrow"><span class="cbar" style="background:${t.color}"></span>\n      <span><span class="lname">${Ht(t.name)}</span><span class="lmeta">${Ht($e(wt(e), t))} on hand</span></span>\n      <span class="lright"><span class="mono tiny">${null === n ? "—" : Ht(ke(n)) + " left"}</span></span></div>`,
+        htmlEl(
+          `<div class="listrow"><span class="cbar" style="background:${t.color}"></span>\n      <span><span class="lname">${esc(t.name)}</span><span class="lmeta">${esc(fmtAmount(stockMg(e), t))} on hand</span></span>\n      <span class="lright"><span class="mono tiny">${null === n ? "—" : esc(fmtDuration(n)) + " left"}</span></span></div>`,
         ),
       ));
   }
   p.appendChild(m);
-  const b = dt(30);
+  const b = adherence(30);
   return (
     p.appendChild(
-      Bt(
+      htmlEl(
         `<div class="panel"><h2>Adherence</h2><div class="pbody">\n    <div class="big-read">${null === b.pct ? "—" : b.pct + "%"}<small> last 30 days · ${b.taken}/${b.sched}</small></div></div></div>`,
       ),
     ),
@@ -1749,14 +1749,14 @@ function rn() {
     a
   );
 }
-function cn(e, t) {
-  return (e && e.route) || (Ce(t) || {}).route || "SubQ";
+function routeOf(e, t) {
+  return (e && e.route) || (compoundById(t) || {}).route || "SubQ";
 }
-function un(e, sl) {
-  const t = e ? Le(e) : d.protocols.find((e) => e.active && Ye(e, te())) || d.protocols[0],
+function newLogDraft(e, sl) {
+  const t = e ? protocolById(e) : appData.protocols.find((e) => e.active && isDue(e, todayIso())) || appData.protocols[0],
     n = new Date();
   if (!t) {
-    const e = (d.compounds[0] || {}).id || "";
+    const e = (appData.compounds[0] || {}).id || "";
     return {
       protocolId: "",
       compoundId: e,
@@ -1766,13 +1766,13 @@ function un(e, sl) {
       purge: 0,
       batchId: "",
       site: "",
-      route: cn(null, e),
-      when: he(n),
+      route: routeOf(null, e),
+      when: localDateTime(n),
       notes: "",
     };
   }
-  const a = Ee(t.compoundId),
-    s = Ge(t, te());
+  const a = currentBatch(t.compoundId),
+    s = doseOn(t, todayIso());
   return {
     protocolId: t.id,
     compoundId: t.compoundId,
@@ -1782,58 +1782,58 @@ function un(e, sl) {
     purge: 0,
     batchId: a ? a.id : "",
     site: "",
-    route: cn(t, t.compoundId),
-    when: he(n),
+    route: routeOf(t, t.compoundId),
+    when: localDateTime(n),
     notes: "",
     pen: !!t.pen,
-    slot: t.split ? sl || SLO(t)[0] || (n.getHours() < 12 ? "am" : "pm") : "",
+    slot: t.split ? sl || openSlotsToday(t)[0] || (n.getHours() < 12 ? "am" : "pm") : "",
   };
 }
-function pn() {
-  if (!d.protocols.length && !d.compounds.length) {
-    const e = Bt('<div class="stack"></div>');
+function logView() {
+  if (!appData.protocols.length && !appData.compounds.length) {
+    const e = htmlEl('<div class="stack"></div>');
     return (
       e.appendChild(
-        Bt('<div class="head"><div><h1>Log a shot</h1><p>Nothing to log against yet.</p></div></div>'),
+        htmlEl('<div class="head"><div><h1>Log a shot</h1><p>Nothing to log against yet.</p></div></div>'),
       ),
       e.appendChild(
-        Bt(
+        htmlEl(
           '<div class="panel"><div class="empty"><b>Add a protocol first</b>\n      <button class="btn" data-newproto="1" style="margin-top:10px">New protocol</button></div></div>',
         ),
       ),
       e
     );
   }
-  r.logDraft || (r.logDraft = un());
-  const e = r.logDraft;
-  e.route || (e.route = cn(Le(e.protocolId), e.compoundId));
-  const t = Bt('<div class="stack"></div>');
+  ui.logDraft || (ui.logDraft = newLogDraft());
+  const e = ui.logDraft;
+  e.route || (e.route = routeOf(protocolById(e.protocolId), e.compoundId));
+  const t = htmlEl('<div class="stack"></div>');
   t.appendChild(
-    Bt(
+    htmlEl(
       '<div class="head"><div><h1>Log a shot</h1>\n    <p>Picking a protocol fills in today’s dose. Change anything before you save it.</p></div></div>',
     ),
   );
-  const n = Bt('<div class="split"></div>'),
-    a = Bt('<div class="panel"><div class="pbody" id="lf"></div></div>'),
-    s = Bt('<div class="stack" id="rf"></div>');
+  const n = htmlEl('<div class="split"></div>'),
+    a = htmlEl('<div class="panel"><div class="pbody" id="lf"></div></div>'),
+    s = htmlEl('<div class="stack" id="rf"></div>');
   (n.appendChild(a), n.appendChild(s), t.appendChild(n));
   const o = a.querySelector("#lf");
-  o.innerHTML = `\n    <div class="field"><label for="lg-p">Protocol</label>\n      <select id="lg-p"><option value="">Not from a protocol</option>\n        ${yt(
-    gt(),
+  o.innerHTML = `\n    <div class="field"><label for="lg-p">Protocol</label>\n      <select id="lg-p"><option value="">Not from a protocol</option>\n        ${runningOptgroups(
+    sortProtocols(),
     (e) => e.active,
     (t) => {
-      const n = Ge(t, te());
-      return `<option value="${t.id}"${e.protocolId === t.id ? " selected" : ""}>${Ht(Ce(t.compoundId).name)} · ${Ht(fe(be(n.dose), 3))} ${Ht(n.unit)} · ${Ht(cn(t, t.compoundId))}${t.split ? " · AM + PM" : ""}</option>`;
+      const n = doseOn(t, todayIso());
+      return `<option value="${t.id}"${e.protocolId === t.id ? " selected" : ""}>${esc(compoundById(t.compoundId).name)} · ${esc(fmt(toNum(n.dose), 3))} ${esc(n.unit)} · ${esc(routeOf(t, t.compoundId))}${t.split ? " · AM + PM" : ""}</option>`;
     },
-  )}\n      </select></div>\n    ${(Le(e.protocolId) || {}).split ? `<div class="field"><label>Which dose</label><div class="seg" id="lg-slot">${["am", "pm"].map((s) => `<button type="button" data-sl="${s}" aria-pressed="${e.slot === s}">${SLN(s)}${st(e.protocolId, _(new Date(e.when)), s) ? " · logged" : ""}</button>`).join("")}</div><span class="hint">This protocol is split into a morning and an evening shot.</span></div>` : ""}\n    <div class="field"><label for="lg-c">Compound</label>\n      <select id="lg-c">${yt(
-    bt(),
-    (e) => mt(e.id),
-    (t) => `<option value="${t.id}"${e.compoundId === t.id ? " selected" : ""}>${Ht(t.name)}</option>`,
-  )}</select></div>\n    <div class="field">\n      <div class="spread"><label for="lg-d" style="margin:0">Dose</label>\n        <div class="seg" id="lg-mode"><button data-mode="amount" aria-pressed="${"amount" === e.mode}">Amount</button>\n          <button data-mode="volume" aria-pressed="${"volume" === e.mode}">Volume</button></div></div>\n      <div class="unitwrap"><input id="lg-d" type="number" step="any" min="0" value="${Ht(e.dose)}">\n        ${"amount" === e.mode ? `<select id="lg-u"><option value="mg"${"mg" === e.unit ? " selected" : ""}>mg</option><option value="mcg"${"mcg" === e.unit ? " selected" : ""}>mcg</option><option value="iu"${"iu" === e.unit ? " selected" : ""}>IU</option></select>` : `<select id="lg-u"><option value="units"${"units" === e.unit ? " selected" : ""}>units</option><option value="mL"${"mL" === e.unit ? " selected" : ""}>mL</option></select>`}\n      </div></div>\n    <div id="lg-draw"></div>\n    <div class="field"><label for="lg-purge">Purged priming the needle (units)</label>\n      <input id="lg-purge" type="number" step="any" min="0" value="${Ht(e.purge)}">\n      <span class="hint">Optional. Units pushed out before injecting — they come off the vial too.</span></div>\n    <div class="field"><label for="lg-b">Comes off this vial</label>\n      <select id="lg-b"><option value="">Do not touch stock</option>\n        ${d.batches
+  )}\n      </select></div>\n    ${(protocolById(e.protocolId) || {}).split ? `<div class="field"><label>Which dose</label><div class="seg" id="lg-slot">${["am", "pm"].map((s) => `<button type="button" data-sl="${s}" aria-pressed="${e.slot === s}">${slotLabel(s)}${logFor(e.protocolId, isoDate(new Date(e.when)), s) ? " · logged" : ""}</button>`).join("")}</div><span class="hint">This protocol is split into a morning and an evening shot.</span></div>` : ""}\n    <div class="field"><label for="lg-c">Compound</label>\n      <select id="lg-c">${runningOptgroups(
+    sortCompounds(),
+    (e) => isRunning(e.id),
+    (t) => `<option value="${t.id}"${e.compoundId === t.id ? " selected" : ""}>${esc(t.name)}</option>`,
+  )}</select></div>\n    <div class="field">\n      <div class="spread"><label for="lg-d" style="margin:0">Dose</label>\n        <div class="seg" id="lg-mode"><button data-mode="amount" aria-pressed="${"amount" === e.mode}">Amount</button>\n          <button data-mode="volume" aria-pressed="${"volume" === e.mode}">Volume</button></div></div>\n      <div class="unitwrap"><input id="lg-d" type="number" step="any" min="0" value="${esc(e.dose)}">\n        ${"amount" === e.mode ? `<select id="lg-u"><option value="mg"${"mg" === e.unit ? " selected" : ""}>mg</option><option value="mcg"${"mcg" === e.unit ? " selected" : ""}>mcg</option><option value="iu"${"iu" === e.unit ? " selected" : ""}>IU</option></select>` : `<select id="lg-u"><option value="units"${"units" === e.unit ? " selected" : ""}>units</option><option value="mL"${"mL" === e.unit ? " selected" : ""}>mL</option></select>`}\n      </div></div>\n    <div id="lg-draw"></div>\n    <div class="field"><label for="lg-purge">Purged priming the needle (units)</label>\n      <input id="lg-purge" type="number" step="any" min="0" value="${esc(e.purge)}">\n      <span class="hint">Optional. Units pushed out before injecting — they come off the vial too.</span></div>\n    <div class="field"><label for="lg-b">Comes off this vial</label>\n      <select id="lg-b"><option value="">Do not touch stock</option>\n        ${appData.batches
     .filter((e) => "finished" !== e.status)
     .map((t) => {
-      const n = Ce(t.compoundId);
-      return `<option value="${t.id}"${e.batchId === t.id ? " selected" : ""}>${Ht(n ? n.name : "?")} · ${Ht(He(t))} · ${Ht($e(be(t.openMg), n))} left${t.vendor ? " · " + Ht(t.vendor) : ""}</option>`;
+      const n = compoundById(t.compoundId);
+      return `<option value="${t.id}"${e.batchId === t.id ? " selected" : ""}>${esc(n ? n.name : "?")} · ${esc(batchText(t))} · ${esc(fmtAmount(toNum(t.openMg), n))} left${t.vendor ? " · " + esc(t.vendor) : ""}</option>`;
     })
     .join(
       "",
@@ -1841,30 +1841,30 @@ function pn() {
   const i = s;
   let l = null;
   function c() {
-    const t = qe(e.batchId),
-      n = Ce(t ? t.compoundId : e.compoundId),
+    const t = batchById(e.batchId),
+      n = compoundById(t ? t.compoundId : e.compoundId),
       a = t ? String(null == t.bacMl ? "" : t.bacMl) : "";
     (e.newBacFor === e.batchId && e.newBacBase === a) ||
-      ((e.newBacFor = e.batchId), (e.newBacBase = a), (e.newBac = be(a) ? a : ""));
-    const s = t ? be(t.sealed) : 0,
-      i = t ? be(t.openMg) : 0,
+      ((e.newBacFor = e.batchId), (e.newBacBase = a), (e.newBac = toNum(a) ? a : ""));
+    const s = t ? toNum(t.sealed) : 0,
+      i = t ? toNum(t.openMg) : 0,
       r = !!(t && s > 0 && i > 0);
     r || (e.newVial = !1);
     const u = !!(t && s > 0 && (e.newVial || i <= 0)),
-      p = u ? be(e.newBac) : t ? be(t.bacMl) : 0,
-      m = !e.pen && t && p > 0 ? be(t.vialMg) / p : 0;
+      p = u ? toNum(e.newBac) : t ? toNum(t.bacMl) : 0,
+      m = !e.pen && t && p > 0 ? toNum(t.vialMg) / p : 0;
     let g = 0,
       v = 0,
       b = 0;
     ("amount" === e.mode
-      ? ((g = Se(e.dose, e.unit)), (b = m > 0 ? g / m : 0), (v = b * Oe))
-      : ((b = "units" === e.unit ? be(e.dose) / Oe : be(e.dose)), (v = b * Oe), (g = b * m)),
+      ? ((g = toMg(e.dose, e.unit)), (b = m > 0 ? g / m : 0), (v = b * UNITS_PER_ML))
+      : ((b = "units" === e.unit ? toNum(e.dose) / UNITS_PER_ML : toNum(e.dose)), (v = b * UNITS_PER_ML), (g = b * m)),
       (e._doseMg = g),
       (e._units = v),
       (e._volMl = b),
       (e._conc = m),
       (e._drawMl = p));
-    const y = m ? (be(e.purge) / Oe) * m : 0,
+    const y = m ? (toNum(e.purge) / UNITS_PER_ML) * m : 0,
       f = !!(t && s > 0 && !u && i < g + y - 1e-9);
     ((e._opens = u || f),
       (function (t, n, a) {
@@ -1873,20 +1873,20 @@ function pn() {
         l = s;
         const i = o.querySelector("#lg-nvbox");
         if (!t || (!a && !n)) return void (i.innerHTML = "");
-        const d = Ce(t.compoundId),
-          r = be(t.sealed),
-          u = be(t.openMg),
-          p = be(t.bacMl);
+        const d = compoundById(t.compoundId),
+          r = toNum(t.sealed),
+          u = toNum(t.openMg),
+          p = toNum(t.bacMl);
         let h = "";
         (a &&
-          (h += `<label class="check" style="margin-bottom:4px"><input type="checkbox" id="lg-nv"${e.newVial ? " checked" : ""}><span>This shot starts a new vial</span></label>\n      <p class="tiny muted" style="margin:0 0 12px">Tick when the vial you were using ran dry. The ${Ht($e(u, d))} the tracker still shows in it is written off, one of your ${Ht(r)} sealed vials is opened (mixed today), and this dose comes out of it.</p>`),
+          (h += `<label class="check" style="margin-bottom:4px"><input type="checkbox" id="lg-nv"${e.newVial ? " checked" : ""}><span>This shot starts a new vial</span></label>\n      <p class="tiny muted" style="margin:0 0 12px">Tick when the vial you were using ran dry. The ${esc(fmtAmount(u, d))} the tracker still shows in it is written off, one of your ${esc(r)} sealed vials is opened (mixed today), and this dose comes out of it.</p>`),
           "empty" === n &&
-            (h += `<p class="tiny muted" style="margin:0 0 12px">The tracker shows this vial empty, so saving opens one of your ${Ht(r)} sealed vials (mixed today) and this dose comes out of it.</p>`),
+            (h += `<p class="tiny muted" style="margin:0 0 12px">The tracker shows this vial empty, so saving opens one of your ${esc(r)} sealed vials (mixed today) and this dose comes out of it.</p>`),
           "spill" === n &&
-            (h += `<p class="tiny muted" style="margin:0 0 12px">Only ${Ht($e(u, d))} is left in the open vial, so the rest of this dose comes out of a new one: one of your ${Ht(r)} sealed vials, mixed today.</p>`),
+            (h += `<p class="tiny muted" style="margin:0 0 12px">Only ${esc(fmtAmount(u, d))} is left in the open vial, so the rest of this dose comes out of a new one: one of your ${esc(r)} sealed vials, mixed today.</p>`),
           n &&
             !e.pen &&
-            (h += `<div class="field"><label for="lg-nvbac">Water in the new vial (mL)</label>\n      <input id="lg-nvbac" type="number" step="any" min="0" value="${Ht(e.newBac)}">\n      <span class="hint">${p ? `Filled in from the last vial (${Ht(fe(p, 2))} mL). Change it if you mixed this one differently.` : "Enter the water you mixed it with."} It is saved to this stock entry.</span></div>`),
+            (h += `<div class="field"><label for="lg-nvbac">Water in the new vial (mL)</label>\n      <input id="lg-nvbac" type="number" step="any" min="0" value="${esc(e.newBac)}">\n      <span class="hint">${p ? `Filled in from the last vial (${esc(fmt(p, 2))} mL). Change it if you mixed this one differently.` : "Enter the water you mixed it with."} It is saved to this stock entry.</span></div>`),
           (i.innerHTML = h));
         const m = i.querySelector("#lg-nv");
         m &&
@@ -1901,7 +1901,7 @@ function pn() {
       })(t, u ? (e.newVial ? "tick" : "empty") : f ? "spill" : "", r),
       (o.querySelector("#lg-draw").innerHTML =
         m > 0
-          ? `<div style="background:var(--surface-2);border:1px solid var(--rule-soft);border-radius:7px;padding:10px 12px;margin:-4px 0 12px">\n      <div class="tiny mono" style="color:var(--signal);margin-bottom:2px">${fe(b, 3)} mL · ${fe(v, 1)} units${"volume" === e.mode ? " · " + $e(g, Ce(e.compoundId)) : ""}</div>\n      ${Wt(v, d.settings.barrel, { compact: !0 })}\n      <div class="tiny muted" id="lg-mix">${u ? "New vial: " : ""}${Ht(fe(be(t.vialMg), 2))} ${xe(n)} + ${Ht(fe(p, 2))} mL water = ${fe(m, 2)} ${Ae(n)}</div>\n      ${v > d.settings.barrel ? `<div class="tiny" style="color:var(--alert)">Bigger than your ${d.settings.barrel}-unit barrel.</div>` : ""}\n    </div>`
+          ? `<div style="background:var(--surface-2);border:1px solid var(--rule-soft);border-radius:7px;padding:10px 12px;margin:-4px 0 12px">\n      <div class="tiny mono" style="color:var(--signal);margin-bottom:2px">${fmt(b, 3)} mL · ${fmt(v, 1)} units${"volume" === e.mode ? " · " + fmtAmount(g, compoundById(e.compoundId)) : ""}</div>\n      ${syringeSvg(v, appData.settings.barrel, { compact: !0 })}\n      <div class="tiny muted" id="lg-mix">${u ? "New vial: " : ""}${esc(fmt(toNum(t.vialMg), 2))} ${massUnit(n)} + ${esc(fmt(p, 2))} mL water = ${fmt(m, 2)} ${concUnit(n)}</div>\n      ${v > appData.settings.barrel ? `<div class="tiny" style="color:var(--alert)">Bigger than your ${appData.settings.barrel}-unit barrel.</div>` : ""}\n    </div>`
           : e.pen
             ? '<p class="tiny muted" style="margin:-4px 0 12px">Pre-filled pen: dial it to the dose above. Nothing to draw.</p>'
             : `<p class="tiny" style="color:var(--due);margin:-4px 0 12px">${u ? "Enter the water you mixed the new vial with to see the draw." : "Pick a vial that has been mixed with water to see the draw."}</p>`),
@@ -1909,16 +1909,16 @@ function pn() {
   }
   function u() {
     if (!e.site) return "No site chosen — tap one, or leave it blank.";
-    const t = J(e.site);
-    return `<b style="color:var(--ink)">${Ht(K(e.site))}</b>${t ? `<br>${Ht(t)}` : ""}`;
+    const t = siteNote(e.site);
+    return `<b style="color:var(--ink)">${esc(siteName(e.site))}</b>${t ? `<br>${esc(t)}` : ""}`;
   }
   function p() {
-    return Y.includes(e.route)
-      ? `<div id="lg-sites">${sn(r.siteView, e.site, e.route)}</div>\n      <p class="tiny muted" id="lg-sitename" style="text-align:center;margin:8px 0 0">${u()}</p>\n      <div class="legend" style="border:0;padding:8px 0 0;justify-content:center">\n        <span><i style="width:9px;height:9px;border-radius:50%;background:var(--done-soft);border:1.4px solid var(--done)"></i>rested</span>\n        <span><i style="width:9px;height:9px;border-radius:50%;background:var(--due-soft);border:1.4px solid var(--due)"></i>3–6 days</span>\n        <span><i style="width:9px;height:9px;border-radius:50%;background:var(--alert-soft);border:1.4px solid var(--alert)"></i>under 3 days</span>\n      </div>`
-      : `<p class="tiny muted" style="text-align:center;margin:0">Route is ${Ht(e.route)}, so no injection site. Tap SubQ or IM above if this one was injected.</p>`;
+    return ROUTES.includes(e.route)
+      ? `<div id="lg-sites">${sitePicker(ui.siteView, e.site, e.route)}</div>\n      <p class="tiny muted" id="lg-sitename" style="text-align:center;margin:8px 0 0">${u()}</p>\n      <div class="legend" style="border:0;padding:8px 0 0;justify-content:center">\n        <span><i style="width:9px;height:9px;border-radius:50%;background:var(--done-soft);border:1.4px solid var(--done)"></i>rested</span>\n        <span><i style="width:9px;height:9px;border-radius:50%;background:var(--due-soft);border:1.4px solid var(--due)"></i>3–6 days</span>\n        <span><i style="width:9px;height:9px;border-radius:50%;background:var(--alert-soft);border:1.4px solid var(--alert)"></i>under 3 days</span>\n      </div>`
+      : `<p class="tiny muted" style="text-align:center;margin:0">Route is ${esc(e.route)}, so no injection site. Tap SubQ or IM above if this one was injected.</p>`;
   }
   function h() {
-    const t = Ce(e.compoundId),
+    const t = compoundById(e.compoundId),
       n = t ? halfLifeOf(t) : 0,
       a = new Date(e.when).getTime() || Date.now();
     let s = "";
@@ -1936,13 +1936,13 @@ function pn() {
         const v = L(x);
         v > pk && ((pk = v), (ph = x));
       }
-      const HH = (h) => (h < 1 ? Math.round(60 * h) + " min" : h < 48 ? fe(h, h < 10 ? 1 : 0) + " h" : fe(h / 24, 1) + " days"),
+      const HH = (h) => (h < 1 ? Math.round(60 * h) + " min" : h < 48 ? fmt(h, h < 10 ? 1 : 0) + " h" : fmt(h / 24, 1) + " days"),
         src = "yours" === P.src ? "your setting" : "published" === P.src ? P.note : "a rough guess by route; set your own on the compound";
-      s = `<div class="panel"><h2>Level in body<span class="mono tiny">${Ht($e(o, t))} now</span></h2><div class="pbody">\n        <div class="big-read">${Ht($e(pk, t))}<small> ${ph ? "at its highest, about " + Ht(HH(ph)) + " after this shot" : "right after this shot"}</small></div>\n        <div class="bar" style="margin:10px 0 12px"><i style="width:100%;background:${t.color}"></i></div>\n        <div class="kv"><span>In 24 h</span><b>${Ht($e(L(24), t))}</b></div>\n        <div class="kv"><span>In 72 h</span><b>${Ht($e(L(72), t))}</b></div>\n        <div class="kv"><span>Highest, as a multiple of this dose</span><b>${D ? fe(pk / D, 2) : "—"}×</b></div>\n        <p class="tiny muted" style="margin:10px 0 0">Each shot is absorbed over about ${Ht(HH(P.h || 0))} to its peak (${Ht(src)}), then cleared by a ${Ht(fe(n, 1))} h half-life. An estimate, not a clinical figure.</p>\n      </div></div>`;
+      s = `<div class="panel"><h2>Level in body<span class="mono tiny">${esc(fmtAmount(o, t))} now</span></h2><div class="pbody">\n        <div class="big-read">${esc(fmtAmount(pk, t))}<small> ${ph ? "at its highest, about " + esc(HH(ph)) + " after this shot" : "right after this shot"}</small></div>\n        <div class="bar" style="margin:10px 0 12px"><i style="width:100%;background:${t.color}"></i></div>\n        <div class="kv"><span>In 24 h</span><b>${esc(fmtAmount(L(24), t))}</b></div>\n        <div class="kv"><span>In 72 h</span><b>${esc(fmtAmount(L(72), t))}</b></div>\n        <div class="kv"><span>Highest, as a multiple of this dose</span><b>${D ? fmt(pk / D, 2) : "—"}×</b></div>\n        <p class="tiny muted" style="margin:10px 0 0">Each shot is absorbed over about ${esc(HH(P.h || 0))} to its peak (${esc(src)}), then cleared by a ${esc(fmt(n, 1))} h half-life. An estimate, not a clinical figure.</p>\n      </div></div>`;
     }
     i.innerHTML =
       s +
-      `\n      <div class="panel"><h2>Injection site<div class="seg" id="lg-view">\n        <button data-view="front" aria-pressed="${"front" === r.siteView}">Front</button>\n        <button data-view="back" aria-pressed="${"back" === r.siteView}">Back</button></div></h2>\n        <div class="pbody">\n          <div class="spread" style="margin:0 0 12px"><span class="tiny muted">Route for this shot</span>\n            <div class="seg" id="lg-route">${Y.map((t) => `<button data-route="${t}" aria-pressed="${e.route === t}">${t}</button>`).join("")}</div></div>\n          <div id="lg-sitebox">${p()}</div>\n        </div></div>\n      <div class="panel"><div class="pbody">\n        <div class="field"><label for="lg-when">When</label><input id="lg-when" type="datetime-local" value="${Ht(e.when)}"></div>\n        <div class="field"><label for="lg-n">Notes</label><textarea id="lg-n" placeholder="Optional">${Ht(e.notes)}</textarea></div>\n        <button class="btn big" id="lg-save">Log this shot</button>\n        <p class="tiny muted" style="text-align:center;margin:10px 0 0"><a href="#" data-go="history">View shot history</a></p>\n      </div></div>`;
+      `\n      <div class="panel"><h2>Injection site<div class="seg" id="lg-view">\n        <button data-view="front" aria-pressed="${"front" === ui.siteView}">Front</button>\n        <button data-view="back" aria-pressed="${"back" === ui.siteView}">Back</button></div></h2>\n        <div class="pbody">\n          <div class="spread" style="margin:0 0 12px"><span class="tiny muted">Route for this shot</span>\n            <div class="seg" id="lg-route">${ROUTES.map((t) => `<button data-route="${t}" aria-pressed="${e.route === t}">${t}</button>`).join("")}</div></div>\n          <div id="lg-sitebox">${p()}</div>\n        </div></div>\n      <div class="panel"><div class="pbody">\n        <div class="field"><label for="lg-when">When</label><input id="lg-when" type="datetime-local" value="${esc(e.when)}"></div>\n        <div class="field"><label for="lg-n">Notes</label><textarea id="lg-n" placeholder="Optional">${esc(e.notes)}</textarea></div>\n        <button class="btn big" id="lg-save">Log this shot</button>\n        <p class="tiny muted" style="text-align:center;margin:10px 0 0"><a href="#" data-go="history">View shot history</a></p>\n      </div></div>`;
     const o = () => {
         i.querySelectorAll("#lg-sites [data-site]").forEach((t) =>
           t.setAttribute("data-on", t.dataset.site === e.site ? "1" : "0"),
@@ -1964,16 +1964,16 @@ function pn() {
       };
     (i.querySelectorAll("#lg-view button").forEach((t) =>
       t.addEventListener("click", () => {
-        ((r.siteView = t.dataset.view),
+        ((ui.siteView = t.dataset.view),
           i.querySelectorAll("#lg-view button").forEach((e) => e.setAttribute("aria-pressed", e === t)));
         const n = i.querySelector("#lg-sites");
-        (n && (n.innerHTML = sn(r.siteView, e.site, e.route)), l(), o());
+        (n && (n.innerHTML = sitePicker(ui.siteView, e.site, e.route)), l(), o());
       }),
     ),
       i.querySelectorAll("#lg-route button").forEach((t) =>
         t.addEventListener("click", () => {
           ((e.route = t.dataset.route),
-            e.site && !z(e.site).includes(e.route) && (e.site = ""),
+            e.site && !siteRoutes(e.site).includes(e.route) && (e.site = ""),
             i.querySelectorAll("#lg-route button").forEach((e) => e.setAttribute("aria-pressed", e === t)),
             (i.querySelector("#lg-sitebox").innerHTML = p()),
             l());
@@ -1986,7 +1986,7 @@ function pn() {
       i.querySelector("#lg-n").addEventListener("input", (t) => {
         e.notes = t.target.value;
       }),
-      i.querySelector("#lg-save").addEventListener("click", hn));
+      i.querySelector("#lg-save").addEventListener("click", saveLog));
   }
   return (
     o.querySelectorAll("#lg-slot button").forEach((t) =>
@@ -1997,22 +1997,22 @@ function pn() {
     ),
     o.querySelector("#lg-p").addEventListener("change", (t) => {
       t.target.value
-        ? ((r.logDraft = un(t.target.value)), (r.logDraft.when = e.when), redrawPage())
+        ? ((ui.logDraft = newLogDraft(t.target.value)), (ui.logDraft.when = e.when), redrawPage())
         : ((e.protocolId = ""), (e.pen = !1), c());
     }),
     o.querySelector("#lg-c").addEventListener("change", (t) => {
       e.compoundId = t.target.value;
-      const n = Ee(e.compoundId);
+      const n = currentBatch(e.compoundId);
       ((e.batchId = n ? n.id : ""),
         e.protocolId ||
-          ((e.route = cn(null, e.compoundId)), e.site && !z(e.site).includes(e.route) && (e.site = "")),
+          ((e.route = routeOf(null, e.compoundId)), e.site && !siteRoutes(e.site).includes(e.route) && (e.site = "")),
         redrawPage());
     }),
     o.querySelectorAll("#lg-mode button").forEach((t) =>
       t.addEventListener("click", () => {
         ((e.mode = t.dataset.mode),
           (e.unit = "amount" === e.mode ? "mg" : "units"),
-          "volume" === e.mode && e._units && (e.dose = ye(e._units, 2)),
+          "volume" === e.mode && e._units && (e.dose = roundTo(e._units, 2)),
           redrawPage());
       }),
     ),
@@ -2032,84 +2032,84 @@ function pn() {
     t
   );
 }
-function hn() {
-  const e = r.logDraft;
-  if (!e._doseMg && "amount" === e.mode && !be(e.dose)) return void toast("Enter a dose first.");
+function saveLog() {
+  const e = ui.logDraft;
+  if (!e._doseMg && "amount" === e.mode && !toNum(e.dose)) return void toast("Enter a dose first.");
   const t = new Date(e.when),
-    n = e._conc ? (be(e.purge) / Oe) * e._conc : 0,
+    n = e._conc ? (toNum(e.purge) / UNITS_PER_ML) * e._conc : 0,
     a = {
-      id: ve(),
+      id: newId(),
       protocolId: e.protocolId,
       compoundId: e.compoundId,
-      date: _(t),
+      date: isoDate(t),
       at: t.toISOString(),
       status: "taken",
-      doseMg: ye(e._doseMg, 6),
-      units: ye(e._units, 2),
-      volMl: ye(e._volMl, 4),
-      purgeUnits: be(e.purge),
-      purgeMg: ye(n, 6),
+      doseMg: roundTo(e._doseMg, 6),
+      units: roundTo(e._units, 2),
+      volMl: roundTo(e._volMl, 4),
+      purgeUnits: toNum(e.purge),
+      purgeMg: roundTo(n, 6),
       batchId: e.batchId,
       site: e.site,
       route: e.route || "",
       notes: e.notes,
-      ...(e.protocolId && e.slot && (Le(e.protocolId) || {}).split ? { slot: e.slot } : {}),
+      ...(e.protocolId && e.slot && (protocolById(e.protocolId) || {}).split ? { slot: e.slot } : {}),
     },
-    o = e.protocolId ? st(e.protocolId, a.date, a.slot) : null;
+    o = e.protocolId ? logFor(e.protocolId, a.date, a.slot) : null;
   if (o && "taken" === o.status) {
     if (
       !confirm(
         a.slot
-          ? `The ${SLN(a.slot)} dose of this protocol is already logged on that day. Add another anyway?`
+          ? `The ${slotLabel(a.slot)} dose of this protocol is already logged on that day. Add another anyway?`
           : "You already have a shot logged against this protocol on that day. Add another anyway?",
       )
     )
       return;
-  } else o && mn(o.id, !0);
-  if ((d.logs.push(a), e.batchId)) {
-    const t = qe(e.batchId),
-      n = !!(e.newVial && t && be(t.sealed) > 0 && be(t.openMg) > 0);
-    t && ((a.vialMg = be(t.vialMg)), be(e._drawMl) && (a.bacMl = be(e._drawMl)));
-    const s = It(e.batchId, a.doseMg + a.purgeMg, n, e._opens ? be(e.newBac) : 0);
+  } else o && deleteLog(o.id, !0);
+  if ((appData.logs.push(a), e.batchId)) {
+    const t = batchById(e.batchId),
+      n = !!(e.newVial && t && toNum(t.sealed) > 0 && toNum(t.openMg) > 0);
+    t && ((a.vialMg = toNum(t.vialMg)), toNum(e._drawMl) && (a.bacMl = toNum(e._drawMl)));
+    const s = takeFromStock(e.batchId, a.doseMg + a.purgeMg, n, e._opens ? toNum(e.newBac) : 0);
     s && ((a.opened = s), n && (a.newVial = !0));
   }
-  (fn("shot"), s(), (r.logDraft = null), (r.tab = "today"), redrawPage());
-  const i = a.opened ? qe(a.batchId) : null;
+  (useSupplies("shot"), saveData(), (ui.logDraft = null), (ui.tab = "today"), redrawPage());
+  const i = a.opened ? batchById(a.batchId) : null;
   toast(
-    `Logged ${$e(a.doseMg, Ce(a.compoundId))} of ${Ce(a.compoundId).name}.${i ? ` New vial opened${be(i.bacMl) ? `, mixed with ${fe(be(i.bacMl), 2)} mL` : ""}.` : ""}`,
+    `Logged ${fmtAmount(a.doseMg, compoundById(a.compoundId))} of ${compoundById(a.compoundId).name}.${i ? ` New vial opened${toNum(i.bacMl) ? `, mixed with ${fmt(toNum(i.bacMl), 2)} mL` : ""}.` : ""}`,
   );
 }
-function mn(e, t) {
-  const n = d.logs.find((t) => t.id === e);
+function deleteLog(e, t) {
+  const n = appData.logs.find((t) => t.id === e);
   if (n) {
     if ("taken" === n.status && n.batchId) {
-      const e = qe(n.batchId),
+      const e = batchById(n.batchId),
         t = n.opened;
-      e && t && t.tok && e.openTok === t.tok && Math.abs(be(e.openMg) + be(t.fromNew) - be(e.vialMg)) < 1e-6
-        ? Lt(e, t)
-        : qt(n.batchId, be(n.doseMg) + be(n.purgeMg));
+      e && t && t.tok && e.openTok === t.tok && Math.abs(toNum(e.openMg) + toNum(t.fromNew) - toNum(e.vialMg)) < 1e-6
+        ? undoOpenVial(e, t)
+        : returnToStock(n.batchId, toNum(n.doseMg) + toNum(n.purgeMg));
     }
-    ((d.logs = d.logs.filter((t) => t.id !== e)), t || s());
+    ((appData.logs = appData.logs.filter((t) => t.id !== e)), t || saveData());
   }
 }
-function gn(e, t, sl) {
-  const n = Le(e);
+function quickLog(e, t, sl) {
+  const n = protocolById(e);
   if (!n) return;
   sl = n.split ? sl || "am" : "";
-  const a = st(e, te(), sl);
-  a && mn(a.id, !0);
-  const o = Ue(n),
+  const a = logFor(e, todayIso(), sl);
+  a && deleteLog(a.id, !0);
+  const o = doseMath(n),
     i = new Date(),
     l = {
-      id: ve(),
+      id: newId(),
       protocolId: e,
       compoundId: n.compoundId,
-      date: te(),
+      date: todayIso(),
       at: i.toISOString(),
       status: t,
-      doseMg: "taken" === t ? ye(o.doseMg, 6) : 0,
-      units: "taken" === t ? ye(o.units, 2) : 0,
-      volMl: ye(o.volMl, 4),
+      doseMg: "taken" === t ? roundTo(o.doseMg, 6) : 0,
+      units: "taken" === t ? roundTo(o.units, 2) : 0,
+      volMl: roundTo(o.volMl, 4),
       purgeUnits: 0,
       purgeMg: 0,
       batchId: "taken" === t && o.batch ? o.batch.id : "",
@@ -2117,115 +2117,115 @@ function gn(e, t, sl) {
       notes: "",
       ...(sl ? { slot: sl } : {}),
     };
-  d.logs.push(l);
+  appData.logs.push(l);
   let r = null;
   return (
-    l.batchId && (vn(l), (r = It(l.batchId, l.doseMg)), r && (l.opened = r)),
-    "taken" === t && fn("shot"),
-    s(),
-    yn(n, l, t) || (r ? bn(l) : "")
+    l.batchId && (fillVialFromBatch(l), (r = takeFromStock(l.batchId, l.doseMg)), r && (l.opened = r)),
+    "taken" === t && useSupplies("shot"),
+    saveData(),
+    noUnitsNote(n, l, t) || (r ? newVialNote(l) : "")
   );
 }
-function vn(e) {
-  const t = qe(e.batchId);
-  t && ((e.vialMg = be(t.vialMg)), be(t.bacMl) && (e.bacMl = be(t.bacMl)));
+function fillVialFromBatch(e) {
+  const t = batchById(e.batchId);
+  t && ((e.vialMg = toNum(t.vialMg)), toNum(t.bacMl) && (e.bacMl = toNum(t.bacMl)));
 }
-function bn(e) {
-  const t = qe(e.batchId),
-    n = Ce(e.compoundId);
-  return (Le(e.protocolId) || {}).pen
+function newVialNote(e) {
+  const t = batchById(e.batchId),
+    n = compoundById(e.compoundId);
+  return (protocolById(e.protocolId) || {}).pen
     ? "Logged. That started a new pen."
     : t
-      ? `Logged. That opened a new ${n ? n.name : ""} vial, counted as mixed with ${fe(be(t.bacMl), 2)} mL like the last one. If you used a different amount, change it on Stock.`
+      ? `Logged. That opened a new ${n ? n.name : ""} vial, counted as mixed with ${fmt(toNum(t.bacMl), 2)} mL like the last one. If you used a different amount, change it on Stock.`
       : "";
 }
-function yn(e, t, n) {
-  return "taken" !== n || e.pen || be(t.units) > 0
+function noUnitsNote(e, t, n) {
+  return "taken" !== n || e.pen || toNum(t.units) > 0
     ? ""
     : t.batchId
-      ? `Logged, but no units worked out — ${pt(e.compoundId)} has no water entered for its vial. The dose still came off stock; add the water on Stock.`
-      : `Logged, but no units worked out — ${pt(e.compoundId)} has no vial in stock, so stock was not touched.`;
+      ? `Logged, but no units worked out — ${compoundName(e.compoundId)} has no water entered for its vial. The dose still came off stock; add the water on Stock.`
+      : `Logged, but no units worked out — ${compoundName(e.compoundId)} has no vial in stock, so stock was not touched.`;
 }
-function fn(e) {
-  for (const t of d.supplies) t.per === e && (t.count = Math.max(0, be(t.count) - be(t.each || 1)));
+function useSupplies(e) {
+  for (const t of appData.supplies) t.per === e && (t.count = Math.max(0, toNum(t.count) - toNum(t.each || 1)));
 }
-function wn(e) {
-  for (const t of d.supplies) t.per === e && (t.count = be(t.count) + be(t.each || 1));
+function returnSupplies(e) {
+  for (const t of appData.supplies) t.per === e && (t.count = toNum(t.count) + toNum(t.each || 1));
 }
-function kn() {
-  const e = Bt('<div class="stack"></div>'),
-    t = Bt(
-      `<div class="head"><div><h1>Protocols</h1>\n    <p>${d.protocols.filter((e) => e.active).length} active. A protocol is one compound on one dose and one schedule, optionally for a set number of weeks.</p></div>\n    <button class="btn" data-newproto="1">New protocol</button></div>`,
+function protocolsView() {
+  const e = htmlEl('<div class="stack"></div>'),
+    t = htmlEl(
+      `<div class="head"><div><h1>Protocols</h1>\n    <p>${appData.protocols.filter((e) => e.active).length} active. A protocol is one compound on one dose and one schedule, optionally for a set number of weeks.</p></div>\n    <button class="btn" data-newproto="1">New protocol</button></div>`,
     );
-  if ((e.appendChild(t), !d.protocols.length))
+  if ((e.appendChild(t), !appData.protocols.length))
     return (
       e.appendChild(
-        Bt(
+        htmlEl(
           '<div class="panel"><div class="empty"><b>No protocols yet</b>Add one to get a schedule, a draw and a stock countdown.</div></div>',
         ),
       ),
       e
     );
-  let n = Bt('<div class="grid2"></div>'),
+  let n = htmlEl('<div class="grid2"></div>'),
     a = !1;
-  for (const t of gt()) {
+  for (const t of sortProtocols()) {
     t.active ||
       a ||
       ((a = !0),
       e.appendChild(n),
-      e.appendChild(Bt('<div class="eyebrow" style="margin:6px 0 -4px">Not running</div>')),
-      (n = Bt('<div class="grid2"></div>')));
-    const s = Ce(t.compoundId),
-      o = Ue(t),
+      e.appendChild(htmlEl('<div class="eyebrow" style="margin:6px 0 -4px">Not running</div>')),
+      (n = htmlEl('<div class="grid2"></div>')));
+    const s = compoundById(t.compoundId),
+      o = doseMath(t),
       i = t.split
-        ? SLO(t).length
+        ? openSlotsToday(t).length
           ? null
           : (() => {
-              const m = SL(t).filter((x) => "taken" !== st(t.id, te(), x).status).length;
+              const m = doseSlots(t).filter((x) => "taken" !== logFor(t.id, todayIso(), x).status).length;
               return {
                 status: m ? "missed" : "taken",
                 txt: m ? (2 === m ? "Both missed today" : "1 missed today") : "Both doses logged",
               };
             })()
-        : st(t.id, te()),
-      l = Xe(t),
-      d = nt(t, te()),
-      r = Re(t, te()),
+        : logFor(t.id, todayIso()),
+      l = weeksLeft(t),
+      d = nextDueDate(t, todayIso()),
+      r = cyclePosition(t, todayIso()),
       c = t.cycling && !r.on;
     let u = null;
     if (c)
       for (let e = 1; e <= 400; e++) {
-        const n = ne(te(), e);
-        if (Re(t, n).on) {
+        const n = addDays(todayIso(), e);
+        if (cyclePosition(t, n).on) {
           u = n;
           break;
         }
       }
-    const p = Je(t, te());
+    const p = nextDoseChange(t, todayIso());
     n.appendChild(
-      Bt(
-        `<div class="panel"><div class="pbody">\n      <div class="spread" style="margin-bottom:2px"><b style="font-size:17px">${Ht(s.name)}</b>\n        ${t.active ? (c ? '<span class="pill">Resting</span>' : i ? `<span class="pill ${"taken" === i.status ? "done" : "late"}">${i.txt || ("taken" === i.status ? "Logged today" : "Missed today")}</span>` : Ye(t, te()) ? `<span class="pill due">${t.split && 1 === SLO(t).length ? SLN(SLO(t)[0]) + " dose due" : "Due today"}</span>` : '<span class="pill">Scheduled</span>') : '<span class="pill">Paused</span>'}</div>\n      <div class="muted tiny" style="margin-bottom:12px">${Ht(fe(be(o.dose), 3))} ${Ht("iu" === o.unit ? "IU" : o.unit)}${o.phase && o.phase.of ? ` · phase ${o.phase.phase} of ${o.phase.of}${o.phase.holding ? ", held" : ""}` : ""} · ${Ht(_e(t))} · ${Ht(t.route || "SubQ")}</div>\n      ${Sn(t, o.dose, o.unit) ? `<div class="blsplit">${Ht(Sn(t, o.dose, o.unit))}</div>` : ""}\n      ${je(t) ? `<div class="note warn" style="margin:0 0 12px"><span>⚠</span><span>${je(t)} titration step${1 === je(t) ? " has" : "s have"} no length, so ${1 === je(t) ? "it is" : "they are"} being skipped and the dose above is off. Tap Edit and give ${1 === je(t) ? "it" : "each of them"} a duration.</span></div>` : ""}\n      ${c ? `<div class="note" style="margin:0 0 12px"><span>ⓘ</span><span>Resting${u ? ` until ${Ht(oe(u))}` : ""}. Nothing is scheduled meanwhile.</span></div>` : ""}\n      ${p ? `<div class="tiny muted" style="margin:-6px 0 12px">Next change ${Ht(oe(p.date))}: ${fe(be(p.dose.dose), 3)} ${"iu" === p.dose.unit ? "IU" : p.dose.unit} · ${Ht(et(EF(t, p.date)))}</div>` : ""}\n      <div class="grid2" style="gap:10px">\n        <div><div class="eyebrow" style="margin-bottom:2px">Next shot</div><b>${d ? Ht(ce(d)) : "—"}</b></div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Length</div>\n          <b>${be(t.weeks) ? Ht(t.weeks) + " weeks" : "Open ended"}</b>\n          ${null !== l ? `<div class="tiny muted">${l <= 0 ? "Finished" : fe(l, 1) + " weeks left"}</div>` : ""}</div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Draw</div><b class="mono">${t.pen ? "Pen" : o.units ? fe(o.units, 1) + "u" : "—"}</b>\n          <div class="tiny muted">${t.pen ? "nothing to draw" : o.batch ? Ht(He(o.batch)) : "no vial in stock"}</div></div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Stock</div><b class="mono">${Ht($e(wt(t.compoundId), s))}</b></div>\n      </div>\n      ${be(t.weeks) ? `<div class="bar" style="margin:12px 0 0"><i style="width:${Math.max(0, Math.min(100, 100 * (1 - (l || 0) / be(t.weeks))))}%;background:${s.color}"></i></div>` : ""}\n      <div class="row" style="margin-top:14px">\n        <button class="btn" style="flex:1" data-logfor="${t.id}">Log a shot</button>\n        <button class="btn ghost" data-pauseproto="${t.id}">${t.active ? "Pause" : "Resume"}</button>\n        <button class="btn ghost" data-editproto="${t.id}">Edit</button></div>\n    </div></div>`,
+      htmlEl(
+        `<div class="panel"><div class="pbody">\n      <div class="spread" style="margin-bottom:2px"><b style="font-size:17px">${esc(s.name)}</b>\n        ${t.active ? (c ? '<span class="pill">Resting</span>' : i ? `<span class="pill ${"taken" === i.status ? "done" : "late"}">${i.txt || ("taken" === i.status ? "Logged today" : "Missed today")}</span>` : isDue(t, todayIso()) ? `<span class="pill due">${t.split && 1 === openSlotsToday(t).length ? slotLabel(openSlotsToday(t)[0]) + " dose due" : "Due today"}</span>` : '<span class="pill">Scheduled</span>') : '<span class="pill">Paused</span>'}</div>\n      <div class="muted tiny" style="margin-bottom:12px">${esc(fmt(toNum(o.dose), 3))} ${esc("iu" === o.unit ? "IU" : o.unit)}${o.phase && o.phase.of ? ` · phase ${o.phase.phase} of ${o.phase.of}${o.phase.holding ? ", held" : ""}` : ""} · ${esc(scheduleText(t))} · ${esc(t.route || "SubQ")}</div>\n      ${blendText(t, o.dose, o.unit) ? `<div class="blsplit">${esc(blendText(t, o.dose, o.unit))}</div>` : ""}\n      ${blankPhaseCount(t) ? `<div class="note warn" style="margin:0 0 12px"><span>⚠</span><span>${blankPhaseCount(t)} titration step${1 === blankPhaseCount(t) ? " has" : "s have"} no length, so ${1 === blankPhaseCount(t) ? "it is" : "they are"} being skipped and the dose above is off. Tap Edit and give ${1 === blankPhaseCount(t) ? "it" : "each of them"} a duration.</span></div>` : ""}\n      ${c ? `<div class="note" style="margin:0 0 12px"><span>ⓘ</span><span>Resting${u ? ` until ${esc(shortDateYear(u))}` : ""}. Nothing is scheduled meanwhile.</span></div>` : ""}\n      ${p ? `<div class="tiny muted" style="margin:-6px 0 12px">Next change ${esc(shortDateYear(p.date))}: ${fmt(toNum(p.dose.dose), 3)} ${"iu" === p.dose.unit ? "IU" : p.dose.unit} · ${esc(schedKindText(scheduleOn(t, p.date)))}</div>` : ""}\n      <div class="grid2" style="gap:10px">\n        <div><div class="eyebrow" style="margin-bottom:2px">Next shot</div><b>${d ? esc(relativeDay(d)) : "—"}</b></div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Length</div>\n          <b>${toNum(t.weeks) ? esc(t.weeks) + " weeks" : "Open ended"}</b>\n          ${null !== l ? `<div class="tiny muted">${l <= 0 ? "Finished" : fmt(l, 1) + " weeks left"}</div>` : ""}</div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Draw</div><b class="mono">${t.pen ? "Pen" : o.units ? fmt(o.units, 1) + "u" : "—"}</b>\n          <div class="tiny muted">${t.pen ? "nothing to draw" : o.batch ? esc(batchText(o.batch)) : "no vial in stock"}</div></div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Stock</div><b class="mono">${esc(fmtAmount(stockMg(t.compoundId), s))}</b></div>\n      </div>\n      ${toNum(t.weeks) ? `<div class="bar" style="margin:12px 0 0"><i style="width:${Math.max(0, Math.min(100, 100 * (1 - (l || 0) / toNum(t.weeks))))}%;background:${s.color}"></i></div>` : ""}\n      <div class="row" style="margin-top:14px">\n        <button class="btn" style="flex:1" data-logfor="${t.id}">Log a shot</button>\n        <button class="btn ghost" data-pauseproto="${t.id}">${t.active ? "Pause" : "Resume"}</button>\n        <button class="btn ghost" data-editproto="${t.id}">Edit</button></div>\n    </div></div>`,
       ),
     );
   }
   return (e.appendChild(n), e);
 }
-function Sn(e, t, n) {
+function blendText(e, t, n) {
   if (!e || !e.blend) return "";
-  const a = (e.parts || []).filter((e) => e.name && be(e.dose) > 0),
-    s = a.reduce((e, t) => e + be(t.dose), 0);
+  const a = (e.parts || []).filter((e) => e.name && toNum(e.dose) > 0),
+    s = a.reduce((e, t) => e + toNum(t.dose), 0);
   if (a.length < 1 || !s) return "";
   const o = "iu" === n ? "IU" : n;
-  return a.map((e) => `${e.name} ${fe((be(t) * be(e.dose)) / s, 3)} ${o}`).join(" + ");
+  return a.map((e) => `${e.name} ${fmt((toNum(t) * toNum(e.dose)) / s, 3)} ${o}`).join(" + ");
 }
-function Mn(e) {
-  const DR = DG(e),
+function protocolForm(e) {
+  const DR = draftGet(e),
     t = DR
       ? DR.t
       : e
-        ? Object.assign({}, Le(e))
+        ? Object.assign({}, protocolById(e))
         : {
-            id: ve(),
+            id: newId(),
             compoundId: "",
             dose: 250,
             unit: "mcg",
@@ -2236,7 +2236,7 @@ function Mn(e) {
             intervalDays: 2,
             cycleOn: 5,
             cycleOff: 2,
-            startDate: te(),
+            startDate: todayIso(),
             weeks: "",
             active: !0,
             notes: "",
@@ -2250,16 +2250,16 @@ function Mn(e) {
             cycleResume: "final",
           };
   t.phases = (t.phases || []).map((e) => Object.assign({}, e));
-  const n = DR ? DR.name : (t.compoundId && (Ce(t.compoundId) || {}).name) || "";
-  Vt(
+  const n = DR ? DR.name : (t.compoundId && (compoundById(t.compoundId) || {}).name) || "";
+  openForm(
     e ? "Edit protocol" : "New protocol",
-    `${DR ? `<div class="note warn" style="margin:0 0 14px;align-items:center;flex-wrap:wrap"><span>↺</span><span style="flex:1;min-width:160px">Picked up where you left off (${Ht(DT(DR.at))}).</span><button type="button" class="btn ghost sm" id="p-discard">Start over</button></div>` : ""}\n    <datalist id="lib">${u.map((e) => `<option value="${Ht(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="p-name">Compound</label>\n      <input id="p-name" list="lib" value="${Ht(n)}" placeholder="Start typing — the list has common ones">\n      <span class="hint">Anything not on the list is added as your own.</span></div>\n    <fieldset><legend>Dose</legend><div class="fgrid3">\n      <div class="field"><label for="p-dose" id="p-dlab">${t.split ? "Amount per shot" : "Amount"}</label><input id="p-dose" type="number" step="any" min="0" value="${Ht(t.dose)}">\n        <span class="hint" id="p-dosenote" hidden></span><span class="hint" id="p-daily"></span></div>\n      <div class="field"><label for="p-unit">Measured in</label><select id="p-unit">\n        <option value="mcg"${"mcg" === t.unit ? " selected" : ""}>mcg</option><option value="mg"${"mg" === t.unit ? " selected" : ""}>mg</option>\n        <option value="iu"${"iu" === t.unit ? " selected" : ""}>IU</option></select></div>\n      <div class="field"><label>Doses per day</label><div class="seg" id="p-split"><button type="button" data-split="0" aria-pressed="${!t.split}">Once</button><button type="button" data-split="1" aria-pressed="${!!t.split}">Split AM + PM</button></div>\n        <span class="hint">Split gives you a morning and an evening shot, each this amount.</span></div>\n      <div class="field"><label for="p-time" id="p-tlab">${t.split ? "AM time" : "Time of day"}</label><input id="p-time" type="time" value="${Ht(t.time || "")}">\n        <span class="hint" id="p-thint">${t.split ? "Optional — leave blank and Today just says AM." : "Optional — orders your Today list."}</span></div>\n      <div class="field" id="p-t2" style="${t.split ? "" : "display:none"}"><label for="p-time2">PM time</label><input id="p-time2" type="time" value="${Ht(t.time2 || "")}">\n        <span class="hint">Optional — leave blank and Today just says PM.</span></div>\n      <div class="field" id="p-sf" style="${t.split ? "" : "display:none"}"><label for="p-splitfrom">AM + PM starts on</label><input id="p-splitfrom" type="date" value="${Ht(t.splitFrom || "")}">\n        <span class="hint">Days before this count as one dose a day, so they don't show a missed PM dose. Leave blank if it was AM + PM from the start.</span></div>\n      <div class="field"><label for="p-route">Route</label><select id="p-route">\n        ${["SubQ", "IM", "Oral", "Nasal", "Topical"].map((e) => `<option${t.route === e ? " selected" : ""}>${e}</option>`).join("")}</select></div>\n    </div></fieldset>\n    <div class="togrow" style="border-top:0;padding-top:0;margin-bottom:6px">\n      <div><b>Blend</b><span>Several peptides in one vial</span></div>\n      <label class="switch"><input type="checkbox" id="p-blend" ${t.blend ? "checked" : ""}><i></i></label></div>\n    <div id="p-blendbox" style="margin-bottom:14px" ${t.blend ? "" : "hidden"}></div>\n    <div class="togrow" style="margin-bottom:6px"><div><b>Pre-filled pen</b><span>Comes ready to inject, nothing to mix or draw (Mounjaro, Ozempic and the like)</span></div>\n      <label class="switch"><input type="checkbox" id="p-pen" ${t.pen ? "checked" : ""}><i></i></label></div>\n    <fieldset id="p-mixfs" ${t.pen ? "hidden" : ""}><legend>Vial mix</legend>\n      <div class="field"><label for="p-water">Bac water added to the vial (mL)</label>\n        <input id="p-water" type="number" step="any" min="0" placeholder="e.g. 2">\n        <span class="hint" id="p-waterhint"></span>\n        <span class="tiny mono muted" id="p-waterprev" style="display:block;margin-top:4px"></span></div>\n    </fieldset>\n    <fieldset><legend>Schedule</legend>\n      <div class="field"><label for="p-sched">Pattern</label><select id="p-sched">\n        <option value="daily"${"daily" === t.sched ? " selected" : ""}>Every day</option>\n        <option value="weekdays"${"weekdays" === t.sched ? " selected" : ""}>Certain days of the week</option>\n        <option value="interval"${"interval" === t.sched ? " selected" : ""}>Every N days</option>\n        <option value="cycle"${"cycle" === t.sched ? " selected" : ""}>Days on, days off</option></select></div>\n      <div id="p-extra"></div>\n      <div class="fgrid">\n        <div class="field"><label for="p-start">Starts</label><input id="p-start" type="date" value="${Ht(t.startDate)}"></div>\n        <div class="field"><label for="p-weeks">Length in weeks</label><input id="p-weeks" type="number" min="0" step="1" value="${Ht(t.weeks)}" placeholder="Leave blank for open ended"></div>\n      </div></fieldset>\n    <div class="togrow" style="border-top:0">\n      <div><b>Phases</b><span>Change the dose or the schedule partway through: titration, or daily then a few times a week</span></div>\n      <label class="switch"><input type="checkbox" id="p-esc" ${t.escalate ? "checked" : ""}><i></i></label></div>\n    <div id="p-escbox" ${t.escalate ? "" : "hidden"}></div>\n    <div class="togrow">\n      <div><b>On/off cycling</b><span>Run for a spell, then rest</span></div>\n      <label class="switch"><input type="checkbox" id="p-cyc" ${t.cycling ? "checked" : ""}><i></i></label></div>\n    <div id="p-cycbox" ${t.cycling ? "" : "hidden"}></div>\n    <div class="prev" id="p-preview"></div>\n    <div class="field" style="margin-top:12px"><label for="p-active">Status</label><select id="p-active">\n      <option value="1"${t.active ? " selected" : ""}>Running</option><option value="0"${t.active ? "" : " selected"}>Paused</option></select></div>\n    <div class="field"><label for="p-notes">Notes</label><textarea id="p-notes">${Ht(t.notes)}</textarea></div>\n    <p id="p-prev" class="tiny mono muted"></p>`,
+    `${DR ? `<div class="note warn" style="margin:0 0 14px;align-items:center;flex-wrap:wrap"><span>↺</span><span style="flex:1;min-width:160px">Picked up where you left off (${esc(timeAgo(DR.at))}).</span><button type="button" class="btn ghost sm" id="p-discard">Start over</button></div>` : ""}\n    <datalist id="lib">${COMPOUND_LIST.map((e) => `<option value="${esc(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="p-name">Compound</label>\n      <input id="p-name" list="lib" value="${esc(n)}" placeholder="Start typing — the list has common ones">\n      <span class="hint">Anything not on the list is added as your own.</span></div>\n    <fieldset><legend>Dose</legend><div class="fgrid3">\n      <div class="field"><label for="p-dose" id="p-dlab">${t.split ? "Amount per shot" : "Amount"}</label><input id="p-dose" type="number" step="any" min="0" value="${esc(t.dose)}">\n        <span class="hint" id="p-dosenote" hidden></span><span class="hint" id="p-daily"></span></div>\n      <div class="field"><label for="p-unit">Measured in</label><select id="p-unit">\n        <option value="mcg"${"mcg" === t.unit ? " selected" : ""}>mcg</option><option value="mg"${"mg" === t.unit ? " selected" : ""}>mg</option>\n        <option value="iu"${"iu" === t.unit ? " selected" : ""}>IU</option></select></div>\n      <div class="field"><label>Doses per day</label><div class="seg" id="p-split"><button type="button" data-split="0" aria-pressed="${!t.split}">Once</button><button type="button" data-split="1" aria-pressed="${!!t.split}">Split AM + PM</button></div>\n        <span class="hint">Split gives you a morning and an evening shot, each this amount.</span></div>\n      <div class="field"><label for="p-time" id="p-tlab">${t.split ? "AM time" : "Time of day"}</label><input id="p-time" type="time" value="${esc(t.time || "")}">\n        <span class="hint" id="p-thint">${t.split ? "Optional — leave blank and Today just says AM." : "Optional — orders your Today list."}</span></div>\n      <div class="field" id="p-t2" style="${t.split ? "" : "display:none"}"><label for="p-time2">PM time</label><input id="p-time2" type="time" value="${esc(t.time2 || "")}">\n        <span class="hint">Optional — leave blank and Today just says PM.</span></div>\n      <div class="field" id="p-sf" style="${t.split ? "" : "display:none"}"><label for="p-splitfrom">AM + PM starts on</label><input id="p-splitfrom" type="date" value="${esc(t.splitFrom || "")}">\n        <span class="hint">Days before this count as one dose a day, so they don't show a missed PM dose. Leave blank if it was AM + PM from the start.</span></div>\n      <div class="field"><label for="p-route">Route</label><select id="p-route">\n        ${["SubQ", "IM", "Oral", "Nasal", "Topical"].map((e) => `<option${t.route === e ? " selected" : ""}>${e}</option>`).join("")}</select></div>\n    </div></fieldset>\n    <div class="togrow" style="border-top:0;padding-top:0;margin-bottom:6px">\n      <div><b>Blend</b><span>Several peptides in one vial</span></div>\n      <label class="switch"><input type="checkbox" id="p-blend" ${t.blend ? "checked" : ""}><i></i></label></div>\n    <div id="p-blendbox" style="margin-bottom:14px" ${t.blend ? "" : "hidden"}></div>\n    <div class="togrow" style="margin-bottom:6px"><div><b>Pre-filled pen</b><span>Comes ready to inject, nothing to mix or draw (Mounjaro, Ozempic and the like)</span></div>\n      <label class="switch"><input type="checkbox" id="p-pen" ${t.pen ? "checked" : ""}><i></i></label></div>\n    <fieldset id="p-mixfs" ${t.pen ? "hidden" : ""}><legend>Vial mix</legend>\n      <div class="field"><label for="p-water">Bac water added to the vial (mL)</label>\n        <input id="p-water" type="number" step="any" min="0" placeholder="e.g. 2">\n        <span class="hint" id="p-waterhint"></span>\n        <span class="tiny mono muted" id="p-waterprev" style="display:block;margin-top:4px"></span></div>\n    </fieldset>\n    <fieldset><legend>Schedule</legend>\n      <div class="field"><label for="p-sched">Pattern</label><select id="p-sched">\n        <option value="daily"${"daily" === t.sched ? " selected" : ""}>Every day</option>\n        <option value="weekdays"${"weekdays" === t.sched ? " selected" : ""}>Certain days of the week</option>\n        <option value="interval"${"interval" === t.sched ? " selected" : ""}>Every N days</option>\n        <option value="cycle"${"cycle" === t.sched ? " selected" : ""}>Days on, days off</option></select></div>\n      <div id="p-extra"></div>\n      <div class="fgrid">\n        <div class="field"><label for="p-start">Starts</label><input id="p-start" type="date" value="${esc(t.startDate)}"></div>\n        <div class="field"><label for="p-weeks">Length in weeks</label><input id="p-weeks" type="number" min="0" step="1" value="${esc(t.weeks)}" placeholder="Leave blank for open ended"></div>\n      </div></fieldset>\n    <div class="togrow" style="border-top:0">\n      <div><b>Phases</b><span>Change the dose or the schedule partway through: titration, or daily then a few times a week</span></div>\n      <label class="switch"><input type="checkbox" id="p-esc" ${t.escalate ? "checked" : ""}><i></i></label></div>\n    <div id="p-escbox" ${t.escalate ? "" : "hidden"}></div>\n    <div class="togrow">\n      <div><b>On/off cycling</b><span>Run for a spell, then rest</span></div>\n      <label class="switch"><input type="checkbox" id="p-cyc" ${t.cycling ? "checked" : ""}><i></i></label></div>\n    <div id="p-cycbox" ${t.cycling ? "" : "hidden"}></div>\n    <div class="prev" id="p-preview"></div>\n    <div class="field" style="margin-top:12px"><label for="p-active">Status</label><select id="p-active">\n      <option value="1"${t.active ? " selected" : ""}>Running</option><option value="0"${t.active ? "" : " selected"}>Paused</option></select></div>\n    <div class="field"><label for="p-notes">Notes</label><textarea id="p-notes">${esc(t.notes)}</textarea></div>\n    <p id="p-prev" class="tiny mono muted"></p>`,
     `${e ? '<button class="btn danger" id="p-del">Delete</button>' : ""}\n     <button class="btn ghost" data-close>Cancel</button><button class="btn" id="p-save">${e ? "Save changes" : "Add protocol"}</button>`,
   );
-  const a = Ot("#modal");
-  Qt(a.querySelector("#p-name"), Ut);
+  const a = qs("#modal");
+  comboBox(a.querySelector("#p-name"), compoundNameOptions);
   const o = () => {
-      ((t.dose = be(a.querySelector("#p-dose").value)),
+      ((t.dose = toNum(a.querySelector("#p-dose").value)),
         (t.unit = a.querySelector("#p-unit").value),
         (t.blend = a.querySelector("#p-blend").checked),
         (t.pen = a.querySelector("#p-pen").checked));
@@ -2268,10 +2268,10 @@ function Mn(e) {
         e.length &&
         ((t.parts = [...e].map((e) => {
           const t = e.querySelector(".bl-d").value;
-          return { name: e.querySelector(".bl-n").value.trim(), dose: "" === t ? "" : be(t) };
+          return { name: e.querySelector(".bl-n").value.trim(), dose: "" === t ? "" : toNum(t) };
         })),
-        (t.dose = ye(
-          t.parts.reduce((e, t) => e + be(t.dose), 0),
+        (t.dose = roundTo(
+          t.parts.reduce((e, t) => e + toNum(t.dose), 0),
           6,
         )),
         (a.querySelector("#p-dose").value = t.dose || "")),
@@ -2280,7 +2280,7 @@ function Mn(e) {
         (t.time = a.querySelector("#p-time").value),
         (t.time2 = a.querySelector("#p-time2").value),
         (t.splitFrom = t.split ? a.querySelector("#p-splitfrom").value : ""),
-        (t.startDate = a.querySelector("#p-start").value || te()),
+        (t.startDate = a.querySelector("#p-start").value || todayIso()),
         (t.weeks = a.querySelector("#p-weeks").value),
         (t.active = "1" === a.querySelector("#p-active").value),
         (t.notes = a.querySelector("#p-notes").value),
@@ -2288,30 +2288,30 @@ function Mn(e) {
         (t.cycling = a.querySelector("#p-cyc").checked),
         a.querySelectorAll("#p-escbox .phrow").forEach((e, n) => {
           t.phases[n] &&
-            ((t.phases[n].dose = be(e.querySelector(".ph-d").value)),
+            ((t.phases[n].dose = toNum(e.querySelector(".ph-d").value)),
             (t.phases[n].unit = e.querySelector(".ph-u").value),
-            (t.phases[n].dur = be(e.querySelector(".ph-n").value)),
+            (t.phases[n].dur = toNum(e.querySelector(".ph-n").value)),
             (t.phases[n].durUnit = e.querySelector(".ph-du").value),
             (t.phases[n].ps = e.querySelector(".ph-s").value),
-            e.querySelector(".ph-i") && (t.phases[n].pint = be(e.querySelector(".ph-i").value)));
+            e.querySelector(".ph-i") && (t.phases[n].pint = toNum(e.querySelector(".ph-i").value)));
         }));
       const n = a.querySelector("#p-on-n");
       n &&
-        ((t.cycleOnN = be(n.value)),
+        ((t.cycleOnN = toNum(n.value)),
         (t.cycleOnUnit = a.querySelector("#p-on-u").value),
-        (t.cycleOffN = be(a.querySelector("#p-off-n").value)),
+        (t.cycleOffN = toNum(a.querySelector("#p-off-n").value)),
         (t.cycleOffUnit = a.querySelector("#p-off-u").value),
         (t.cycleResume = a.querySelector("#p-resume").value));
       const s = a.querySelector("#p-int"),
         o = a.querySelector("#p-on"),
         i = a.querySelector("#p-off");
-      (s && (t.intervalDays = be(s.value)), o && (t.cycleOn = be(o.value)), i && (t.cycleOff = be(i.value)));
+      (s && (t.intervalDays = toNum(s.value)), o && (t.cycleOn = toNum(o.value)), i && (t.cycleOff = toNum(i.value)));
     },
     i = () => {
       const e = a.querySelector("#p-extra"),
         n = a.querySelector("#p-sched").value;
       ("weekdays" === n
-        ? ((e.innerHTML = `<div class="field"><label>Which days</label><div class="daypick" id="p-dp">${me.map((e, n) => `<button type="button" data-dow="${n}" aria-pressed="${(t.days || []).includes(n)}">${e}</button>`).join("")}</div></div>`),
+        ? ((e.innerHTML = `<div class="field"><label>Which days</label><div class="daypick" id="p-dp">${WEEKDAYS.map((e, n) => `<button type="button" data-dow="${n}" aria-pressed="${(t.days || []).includes(n)}">${e}</button>`).join("")}</div></div>`),
           e.querySelectorAll("#p-dp button").forEach((e) =>
             e.addEventListener("click", () => {
               const n = +e.dataset.dow;
@@ -2323,13 +2323,13 @@ function Mn(e) {
           ))
         : (e.innerHTML =
             "interval" === n
-              ? `<div class="field"><label for="p-int">Dose every ___ days</label>\n        <input id="p-int" type="number" min="1" step="1" value="${Ht(t.intervalDays || 2)}"><span class="hint">2 means every other day.</span></div>`
+              ? `<div class="field"><label for="p-int">Dose every ___ days</label>\n        <input id="p-int" type="number" min="1" step="1" value="${esc(t.intervalDays || 2)}"><span class="hint">2 means every other day.</span></div>`
               : "cycle" === n
-                ? `<div class="fgrid"><div class="field"><label for="p-on">Days on</label>\n        <input id="p-on" type="number" min="1" step="1" value="${Ht(t.cycleOn || 5)}"></div>\n        <div class="field"><label for="p-off">Days off</label><input id="p-off" type="number" min="0" step="1" value="${Ht(t.cycleOff || 2)}"></div></div>`
+                ? `<div class="fgrid"><div class="field"><label for="p-on">Days on</label>\n        <input id="p-on" type="number" min="1" step="1" value="${esc(t.cycleOn || 5)}"></div>\n        <div class="field"><label for="p-off">Days off</label><input id="p-off" type="number" min="0" step="1" value="${esc(t.cycleOff || 2)}"></div></div>`
                 : ""),
         e.querySelectorAll("input").forEach((e) => e.addEventListener("input", y)));
     };
-  let l = be(t.dose);
+  let l = toNum(t.dose);
   const r = () => {
       const e = a.querySelector("#p-blendbox");
       ((e.hidden = !t.blend),
@@ -2340,9 +2340,9 @@ function Mn(e) {
                 { name: "", dose: "" },
                 { name: "", dose: "" },
               ]),
-            (e.innerHTML = `<div class="blhead"><span>Peptide</span><span>Per shot (<span class="bl-u"></span>)</span><span></span></div>\n      ${t.parts.map((e, t) => `<div class="blrow">\n        <input class="bl-n" list="lib" value="${Ht(e.name)}" placeholder="e.g. BPC-157" aria-label="Peptide ${t + 1}">\n        <input class="bl-d" type="number" step="any" min="0" value="${Ht(e.dose)}" aria-label="Amount per shot">\n        <button type="button" class="phdel" data-bl="${t}" title="Remove">×</button></div>`).join("")}\n      <div class="spread" style="padding:9px 0 0">\n        <button type="button" class="btn ghost sm" id="p-addbl" style="white-space:nowrap">+ Add peptide</button>\n        <b class="mono" id="p-bltot" style="font-size:13.5px;white-space:nowrap"></b></div>\n      <div class="note"><span>ⓘ</span><span>Enter what goes into each shot, not the vial label. The split has to match the vial — a 10 mg + 10 mg vial always gives equal amounts.</span></div>`),
+            (e.innerHTML = `<div class="blhead"><span>Peptide</span><span>Per shot (<span class="bl-u"></span>)</span><span></span></div>\n      ${t.parts.map((e, t) => `<div class="blrow">\n        <input class="bl-n" list="lib" value="${esc(e.name)}" placeholder="e.g. BPC-157" aria-label="Peptide ${t + 1}">\n        <input class="bl-d" type="number" step="any" min="0" value="${esc(e.dose)}" aria-label="Amount per shot">\n        <button type="button" class="phdel" data-bl="${t}" title="Remove">×</button></div>`).join("")}\n      <div class="spread" style="padding:9px 0 0">\n        <button type="button" class="btn ghost sm" id="p-addbl" style="white-space:nowrap">+ Add peptide</button>\n        <b class="mono" id="p-bltot" style="font-size:13.5px;white-space:nowrap"></b></div>\n      <div class="note"><span>ⓘ</span><span>Enter what goes into each shot, not the vial label. The split has to match the vial — a 10 mg + 10 mg vial always gives equal amounts.</span></div>`),
             e.querySelectorAll("input").forEach((e) => e.addEventListener("input", y)),
-            e.querySelectorAll(".bl-n").forEach((e) => Qt(e, Ut)),
+            e.querySelectorAll(".bl-n").forEach((e) => comboBox(e, compoundNameOptions)),
             e.querySelectorAll("[data-bl]").forEach((e) =>
               e.addEventListener("click", () => {
                 (o(), t.parts.splice(+e.dataset.bl, 1), r(), y());
@@ -2356,10 +2356,10 @@ function Mn(e) {
           : (e.innerHTML = ""));
     },
     c = (e) => {
-      const n = be(t.dose) || 1,
+      const n = toNum(t.dose) || 1,
         a = [];
       for (let s = 1; s <= e; s++)
-        a.push({ dose: ye((n * s) / e, 4), unit: t.unit, dur: 4, durUnit: "weeks" });
+        a.push({ dose: roundTo((n * s) / e, 4), unit: t.unit, dur: 4, durUnit: "weeks" });
       return a;
     },
     p = (e) =>
@@ -2371,7 +2371,7 @@ function Mn(e) {
       e &&
         ((e.innerHTML = t.phases
           .map((e, n) => {
-            return `<div class="phrow"${be(e.dur) > 0 || n === t.phases.length - 1 ? "" : ' data-bad="1"'}>\n      <span class="phn">${n + 1}</span>\n      <input class="ph-d" type="number" step="any" min="0" value="${Ht(e.dose)}">\n      <select class="ph-u">${((a = e.unit || t.unit), ["mcg", "mg", "iu"].map((e) => `<option value="${e}"${a === e ? " selected" : ""}>${"iu" === e ? "IU" : e}</option>`).join(""))}</select>\n      <span style="display:flex;gap:5px"><input class="ph-n" type="number" step="1" min="1" value="${be(e.dur) > 0 ? Ht(e.dur) : ""}"${n === t.phases.length - 1 ? ' placeholder="∞" title="Leave blank to keep going"' : ""}>\n        <select class="ph-du" style="width:auto">${p(e.durUnit || "weeks")}</select></span>\n      <button type="button" class="phdel" data-ph="${n}" title="Remove">×</button>${PSC(e, n)}\n    </div>`;
+            return `<div class="phrow"${toNum(e.dur) > 0 || n === t.phases.length - 1 ? "" : ' data-bad="1"'}>\n      <span class="phn">${n + 1}</span>\n      <input class="ph-d" type="number" step="any" min="0" value="${esc(e.dose)}">\n      <select class="ph-u">${((a = e.unit || t.unit), ["mcg", "mg", "iu"].map((e) => `<option value="${e}"${a === e ? " selected" : ""}>${"iu" === e ? "IU" : e}</option>`).join(""))}</select>\n      <span style="display:flex;gap:5px"><input class="ph-n" type="number" step="1" min="1" value="${toNum(e.dur) > 0 ? esc(e.dur) : ""}"${n === t.phases.length - 1 ? ' placeholder="∞" title="Leave blank to keep going"' : ""}>\n        <select class="ph-du" style="width:auto">${p(e.durUnit || "weeks")}</select></span>\n      <button type="button" class="phdel" data-ph="${n}" title="Remove">×</button>${phaseScheduleField(e, n)}\n    </div>`;
             var a;
           })
           .join("")),
@@ -2407,18 +2407,18 @@ function Mn(e) {
     m = () => {
       a.querySelectorAll("#p-escbox .phrow").forEach((e, n) => {
         const a = t.phases[n];
-        a && (be(a.dur) > 0 || n === t.phases.length - 1) ? delete e.dataset.bad : (e.dataset.bad = "1");
+        a && (toNum(a.dur) > 0 || n === t.phases.length - 1) ? delete e.dataset.bad : (e.dataset.bad = "1");
       });
       const e = a.querySelector("#p-phsum");
       if (e) {
-        const n = Ke(t);
-        e.textContent = `${t.phases.length} phase${1 === t.phases.length ? "" : "s"} · ${n % 7 == 0 ? n / 7 + " weeks" : n + " days"}${t.phases.length && !(be(t.phases[t.phases.length - 1].dur) > 0) ? ", then ongoing" : ""}`;
+        const n = phasesLength(t);
+        e.textContent = `${t.phases.length} phase${1 === t.phases.length ? "" : "s"} · ${n % 7 == 0 ? n / 7 + " weeks" : n + " days"}${t.phases.length && !(toNum(t.phases[t.phases.length - 1].dur) > 0) ? ", then ongoing" : ""}`;
       }
       const n = a.querySelector("#p-escnote");
       if (n) {
-        const e = We(t).slice(-1)[0];
+        const e = phaseList(t).slice(-1)[0];
         n.textContent = e
-          ? `Each phase can have its own dose and schedule. Leave the last phase’s length blank to keep it going until the protocol ends; if it has a length, dosing carries on afterwards at ${fe(be(e.dose), 3)} ${"iu" === (e.unit || t.unit) ? "IU" : e.unit || t.unit} until the protocol ends.`
+          ? `Each phase can have its own dose and schedule. Leave the last phase’s length blank to keep it going until the protocol ends; if it has a length, dosing carries on afterwards at ${fmt(toNum(e.dose), 3)} ${"iu" === (e.unit || t.unit) ? "IU" : e.unit || t.unit} until the protocol ends.`
           : "Add at least one phase.";
       }
     },
@@ -2434,24 +2434,24 @@ function Mn(e) {
               // Phase 2: a copy to edit, running from the change date on. Lengths count from the start date.
               o();
               const D = e.querySelector("#p-chgdate").value,
-                S0 = t.startDate || te();
+                S0 = t.startDate || todayIso();
               if (!D || D <= S0) return void toast("Pick a date after the protocol's start date.");
               if (t.cycling) return void toast("Turn off On/off cycling first: rest days would shift the change date.");
               const cur = {
-                dose: be(t.dose),
+                dose: toNum(t.dose),
                 unit: t.unit,
                 ps: ["daily", "weekdays", "interval"].includes(t.sched) ? t.sched : "",
                 pdays: (t.days || []).slice(),
                 pint: t.intervalDays,
               };
               ((t.phases = [
-                Object.assign({}, cur, { dur: ae(S0, D), durUnit: "days" }),
+                Object.assign({}, cur, { dur: daysBetween(S0, D), durUnit: "days" }),
                 Object.assign({}, cur, { pdays: cur.pdays.slice(), dur: 0, durUnit: "weeks" }),
               ]),
                 (e.querySelector("#p-chg").hidden = !0),
                 h(),
                 y(),
-                toast("Set. Row 1 runs to " + de(ne(D, -1)) + ". Change row 2 to the new dose and schedule."));
+                toast("Set. Row 1 runs to " + fullDate(addDays(D, -1)) + ". Change row 2 to the new dose and schedule."));
             }),
             e.querySelectorAll(".tmpl").forEach((e) =>
               e.addEventListener("click", () => {
@@ -2463,9 +2463,9 @@ function Mn(e) {
                   (t.phases =
                     "ld" === e.dataset.esc
                       ? [
-                          { dose: be(t.dose), unit: t.unit, dur: 5, durUnit: "weeks", ps: "daily" },
+                          { dose: toNum(t.dose), unit: t.unit, dur: 5, durUnit: "weeks", ps: "daily" },
                           {
-                            dose: be(t.dose),
+                            dose: toNum(t.dose),
                             unit: t.unit,
                             dur: 0,
                             durUnit: "weeks",
@@ -2481,9 +2481,9 @@ function Mn(e) {
             e.querySelector("#p-addph").addEventListener("click", () => {
               o();
               const e = t.phases[t.phases.length - 1];
-              e && !(be(e.dur) > 0) && (e.dur = 4);
+              e && !(toNum(e.dur) > 0) && (e.dur = 4);
               (t.phases.push({
-                dose: e ? e.dose : be(t.dose),
+                dose: e ? e.dose : toNum(t.dose),
                 unit: e ? e.unit : t.unit,
                 dur: 4,
                 durUnit: "weeks",
@@ -2498,7 +2498,7 @@ function Mn(e) {
       const e = a.querySelector("#p-cycbox");
       ((e.hidden = !t.cycling),
         t.cycling
-          ? ((e.innerHTML = `<div class="tmpls">\n        <button type="button" class="tmpl" data-cyc="8,4"><b>8 on / 4 off</b><span>Common peptide pattern</span></button>\n        <button type="button" class="tmpl" data-cyc="12,4"><b>12 on / 4 off</b><span>Longer run</span></button>\n        <button type="button" class="tmpl" data-cyc="4,2"><b>4 on / 2 off</b><span>Shorter cycle</span></button>\n      </div>\n      <div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:nowrap">\n        <input id="p-on-n" type="number" min="1" step="1" value="${Ht(t.cycleOnN)}" style="width:66px">\n        <select id="p-on-u" style="width:auto">${p(t.cycleOnUnit)}</select>\n        <span class="tiny muted">on</span><span class="muted">/</span>\n        <input id="p-off-n" type="number" min="0" step="1" value="${Ht(t.cycleOffN)}" style="width:66px">\n        <select id="p-off-u" style="width:auto">${p(t.cycleOffUnit)}</select>\n        <span class="tiny muted">off</span></div>\n      <div class="field"><label for="p-resume">After a rest</label><select id="p-resume">\n        <option value="final"${"restart" !== t.cycleResume ? " selected" : ""}>Carry on at the dose you finished at</option>\n        <option value="restart"${"restart" === t.cycleResume ? " selected" : ""}>Start the ramp again from phase 1</option>\n      </select></div>\n      <div class="note"><span>ⓘ</span><span>Phases only advance on dosing blocks — a rest does not push the ramp forward.</span></div>`),
+          ? ((e.innerHTML = `<div class="tmpls">\n        <button type="button" class="tmpl" data-cyc="8,4"><b>8 on / 4 off</b><span>Common peptide pattern</span></button>\n        <button type="button" class="tmpl" data-cyc="12,4"><b>12 on / 4 off</b><span>Longer run</span></button>\n        <button type="button" class="tmpl" data-cyc="4,2"><b>4 on / 2 off</b><span>Shorter cycle</span></button>\n      </div>\n      <div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:nowrap">\n        <input id="p-on-n" type="number" min="1" step="1" value="${esc(t.cycleOnN)}" style="width:66px">\n        <select id="p-on-u" style="width:auto">${p(t.cycleOnUnit)}</select>\n        <span class="tiny muted">on</span><span class="muted">/</span>\n        <input id="p-off-n" type="number" min="0" step="1" value="${esc(t.cycleOffN)}" style="width:66px">\n        <select id="p-off-u" style="width:auto">${p(t.cycleOffUnit)}</select>\n        <span class="tiny muted">off</span></div>\n      <div class="field"><label for="p-resume">After a rest</label><select id="p-resume">\n        <option value="final"${"restart" !== t.cycleResume ? " selected" : ""}>Carry on at the dose you finished at</option>\n        <option value="restart"${"restart" === t.cycleResume ? " selected" : ""}>Start the ramp again from phase 1</option>\n      </select></div>\n      <div class="note"><span>ⓘ</span><span>Phases only advance on dosing blocks — a rest does not push the ramp forward.</span></div>`),
             e.querySelectorAll(".tmpl").forEach((e) =>
               e.addEventListener("click", () => {
                 o();
@@ -2516,10 +2516,10 @@ function Mn(e) {
     };
   (a.querySelector("#p-blend").addEventListener("change", (e) => {
     (o(),
-      e.target.checked && (l = be(t.dose) || l),
+      e.target.checked && (l = toNum(t.dose) || l),
       (t.blend = e.target.checked),
       r(),
-      t.blend || be(a.querySelector("#p-dose").value) || !l || (a.querySelector("#p-dose").value = l),
+      t.blend || toNum(a.querySelector("#p-dose").value) || !l || (a.querySelector("#p-dose").value = l),
       y());
   }),
     a.querySelector("#p-pen").addEventListener("change", (e) => {
@@ -2539,25 +2539,25 @@ function Mn(e) {
         const e = a.querySelector("#p-water"),
           n = a.querySelector("#p-waterhint"),
           s = a.querySelector("#p-waterprev"),
-          o = Te(a.querySelector("#p-name").value),
-          i = o ? Ee(o.id) : null,
+          o = findCompound(a.querySelector("#p-name").value),
+          i = o ? currentBatch(o.id) : null,
           l = o ? o.id : "";
-        (l !== b && ((b = l), (e.value = i && be(i.bacMl) ? String(i.bacMl) : "")),
+        (l !== b && ((b = l), (e.value = i && toNum(i.bacMl) ? String(i.bacMl) : "")),
           (e.disabled = !i),
           (n.textContent = i
-            ? be(i.openMg) > 0
+            ? toNum(i.openMg) > 0
               ? `Saved to your open ${o.name} vial on Stock.`
               : "No vial open yet. Saved to the stock entry and used when the next vial is mixed."
             : "No stock for this compound yet. Add a vial on Stock first, then set the water here."));
-        const d = be(e.value);
+        const d = toNum(e.value);
         if (!(i && d > 0)) return void (s.textContent = "");
-        const r = Ge(t, te()),
-          c = be(i.vialMg) / d,
-          u = Se(r.dose, r.unit);
+        const r = doseOn(t, todayIso()),
+          c = toNum(i.vialMg) / d,
+          u = toMg(r.dose, r.unit);
         s.textContent =
-          `${fe(be(i.vialMg), 2)} ${xe(o)} + ${fe(d, 2)} mL = ${fe(c, 2)} ${Ae(o)}` +
+          `${fmt(toNum(i.vialMg), 2)} ${massUnit(o)} + ${fmt(d, 2)} mL = ${fmt(c, 2)} ${concUnit(o)}` +
           (u > 0
-            ? ` · ${fe(be(r.dose), 3)} ${"iu" === r.unit ? "IU" : r.unit} = ${fe((u / c) * Oe, 1)} units`
+            ? ` · ${fmt(toNum(r.dose), 3)} ${"iu" === r.unit ? "IU" : r.unit} = ${fmt((u / c) * UNITS_PER_ML, 1)} units`
             : "");
       })(),
       t.blend)
@@ -2565,41 +2565,41 @@ function Mn(e) {
       const e = "iu" === t.unit ? "IU" : t.unit;
       a.querySelectorAll(".bl-u").forEach((t) => (t.textContent = e));
       const n = a.querySelector("#p-bltot");
-      n && (n.textContent = `Total ${fe(be(t.dose), 3)} ${e}`);
+      n && (n.textContent = `Total ${fmt(toNum(t.dose), 3)} ${e}`);
     }
     const pd = a.querySelector("#p-daily");
     if (pd) {
-      const g = Ge(t, te());
+      const g = doseOn(t, todayIso());
       pd.textContent =
-        t.split && be(g.dose)
-          ? `2 shots a day = ${fe(2 * be(g.dose), 3)} ${"iu" === g.unit ? "IU" : g.unit} daily.`
+        t.split && toNum(g.dose)
+          ? `2 shots a day = ${fmt(2 * toNum(g.dose), 3)} ${"iu" === g.unit ? "IU" : g.unit} daily.`
           : "";
     }
-    const e = 7 * tt(t) * SL(t).length,
-      n = Ze(t);
+    const e = 7 * dueFraction(t) * doseSlots(t).length,
+      n = endDate(t);
     a.querySelector("#p-prev").textContent =
-      `${fe(e, 1)} shots a week · ${fe(Se(Ge(t, te()).dose, Ge(t, te()).unit) * tt(t) * SL(t).length * 7, 3)} ${xe(Ce(t.compoundId))} a week${n ? " · ends " + oe(n) : ""}`;
+      `${fmt(e, 1)} shots a week · ${fmt(toMg(doseOn(t, todayIso()).dose, doseOn(t, todayIso()).unit) * dueFraction(t) * doseSlots(t).length * 7, 3)} ${massUnit(compoundById(t.compoundId))} a week${n ? " · ends " + shortDateYear(n) : ""}`;
     const s = a.querySelector("#p-dosenote");
     if (s) {
-      const e = Ge(t, te()),
+      const e = doseOn(t, todayIso()),
         n = "iu" === e.unit ? "IU" : e.unit;
       ((s.hidden = !(t.escalate && e.of)),
         s.hidden ||
-          (s.textContent = `Phases are on, so this box is only the starting point for the phase buttons. Today you are on ${fe(be(e.dose), 3)} ${n} — step ${e.phase} of ${e.of}${e.holding ? ", held" : ""}, from the steps below.`));
+          (s.textContent = `Phases are on, so this box is only the starting point for the phase buttons. Today you are on ${fmt(toNum(e.dose), 3)} ${n} — step ${e.phase} of ${e.of}${e.holding ? ", held" : ""}, from the steps below.`));
     }
     (t.escalate && a.querySelector("#p-phsum") && m(),
       (() => {
         const e = a.querySelector("#p-preview"),
-          n = t.startDate || te(),
-          s = Ze(t),
+          n = t.startDate || todayIso(),
+          s = endDate(t),
           o = [];
         let i = null;
         for (let e = 0; e < 730 && o.length < 8; e++) {
-          const a = ne(n, e);
+          const a = addDays(n, e);
           if (s && a > s) break;
-          const l = Re(t, a),
-            d = Ge(t, a),
-            sc = t.escalate ? et(EF(t, a)) : "",
+          const l = cyclePosition(t, a),
+            d = doseOn(t, a),
+            sc = t.escalate ? schedKindText(scheduleOn(t, a)) : "",
             r = (l.on ? "on" : "off") + "|" + d.dose + "|" + d.unit + "|" + d.phase + "|" + sc;
           r !== i && (o.push({ date: a, on: l.on, a: d, sc: sc }), (i = r));
         }
@@ -2610,17 +2610,17 @@ function Mn(e) {
               o
                 .map(
                   (e) =>
-                    `<div><span class="muted">${Ht(oe(e.date))}</span><b class="mono">${e.on ? `${fe(be(e.a.dose), 3)} ${"iu" === e.a.unit ? "IU" : e.a.unit}${e.a.of ? ` · phase ${e.a.phase}/${e.a.of}${e.a.holding ? " held" : ""}` : ""}${e.sc ? " · " + Ht(e.sc) : ""}` : "rest"}</b></div>`,
+                    `<div><span class="muted">${esc(shortDateYear(e.date))}</span><b class="mono">${e.on ? `${fmt(toNum(e.a.dose), 3)} ${"iu" === e.a.unit ? "IU" : e.a.unit}${e.a.of ? ` · phase ${e.a.phase}/${e.a.of}${e.a.holding ? " held" : ""}` : ""}${e.sc ? " · " + esc(e.sc) : ""}` : "rest"}</b></div>`,
                 )
                 .join("") +
-              (s ? `<div><span class="muted">${Ht(oe(s))}</span><b class="mono">ends</b></div>` : ""));
+              (s ? `<div><span class="muted">${esc(shortDateYear(s))}</span><b class="mono">ends</b></div>` : ""));
       })());
   };
   (a.querySelectorAll("input,select,textarea").forEach((e) => e.addEventListener("input", y)),
     a.querySelector("#p-name").addEventListener("change", (e) => {
       const t = e.target.value.trim(),
-        n = Te(t),
-        s = u.find((e) => e[0].toLowerCase() === t.toLowerCase());
+        n = findCompound(t),
+        s = COMPOUND_LIST.find((e) => e[0].toLowerCase() === t.toLowerCase());
       (((n && "iu" === n.base) || (s && "iu" === s[3])) && (a.querySelector("#p-unit").value = "iu"),
         /^(mounjaro|zepbound|ozempic|wegovy|saxenda|victoza|trulicity)\b/i.test(t) &&
           !a.querySelector("#p-pen").checked &&
@@ -2640,8 +2640,8 @@ function Mn(e) {
           // Switching an existing protocol to AM + PM: the split starts today unless changed.
           t.split &&
             !a.querySelector("#p-splitfrom").value &&
-            (t.startDate || te()) < te() &&
-            (a.querySelector("#p-splitfrom").value = te()),
+            (t.startDate || todayIso()) < todayIso() &&
+            (a.querySelector("#p-splitfrom").value = todayIso()),
           (a.querySelector("#p-tlab").textContent = t.split ? "AM time" : "Time of day"),
           (a.querySelector("#p-dlab").textContent = t.split ? "Amount per shot" : "Amount"),
           (a.querySelector("#p-thint").textContent = t.split
@@ -2668,21 +2668,21 @@ function Mn(e) {
             if (!a.querySelector("#p-save")) return;
             const cur = snap();
             cur !== S0 || DR
-              ? DS({
+              ? draftSave({
                   edit: e || "",
                   at: Date.now(),
                   t: JSON.parse(JSON.stringify(t)),
                   name: a.querySelector("#p-name").value,
                   water: W.value,
                 })
-              : DX();
+              : draftClear();
           }, 250)));
       };
       ["input", "change", "click"].forEach((ev) => BD.addEventListener(ev, sv));
       const X = a.querySelector("#p-discard");
       X &&
         X.addEventListener("click", () => {
-          (DX(), Rt(), Mn(e));
+          (draftClear(), closeForm(), protocolForm(e));
         });
     })(),
     a.querySelector("#p-save").addEventListener("click", () => {
@@ -2696,33 +2696,33 @@ function Mn(e) {
         return void toast("The PM time has to be later than the AM time.");
       if (t.escalate) {
         if (!(t.phases || []).length) return void toast("Add at least one titration step.");
-        if (t.phases.some((e, i) => i < t.phases.length - 1 && !(be(e.dur) > 0)))
+        if (t.phases.some((e, i) => i < t.phases.length - 1 && !(toNum(e.dur) > 0)))
           return (toast("Give every phase except the last a length."), void h());
         if (t.phases.some((e) => "weekdays" === e.ps && !(e.pdays || []).length))
           return void toast("Pick at least one day for each phase set to Certain days.");
-        if (t.phases.some((e) => !be(e.dose))) return (toast("Give every titration step a dose."), void h());
+        if (t.phases.some((e) => !toNum(e.dose))) return (toast("Give every titration step a dose."), void h());
       }
       if (t.blend) {
-        if (((t.parts = (t.parts || []).filter((e) => e.name || be(e.dose))), t.parts.some((e) => !e.name)))
+        if (((t.parts = (t.parts || []).filter((e) => e.name || toNum(e.dose))), t.parts.some((e) => !e.name)))
           return void toast("Name each peptide in the blend.");
-        if (t.parts.some((e) => !be(e.dose)) || !be(t.dose))
+        if (t.parts.some((e) => !toNum(e.dose)) || !toNum(t.dose))
           return void toast("Enter how much of each peptide goes into a shot.");
       }
       const n = a.querySelector("#p-water");
-      if (!(t.pen || n.disabled || "" === n.value || be(n.value) > 0))
+      if (!(t.pen || n.disabled || "" === n.value || toNum(n.value) > 0))
         return void toast("Bac water has to be more than 0 mL.");
-      t.compoundId = Pe(e).id;
+      t.compoundId = findOrAddCompound(e).id;
       let i = "";
-      if (!t.pen && !n.disabled && be(n.value) > 0) {
-        const e = Ee(t.compoundId),
-          a = be(n.value);
-        e && a !== be(e.bacMl) && ((e.bacMl = String(a)), (i = ` Water set to ${fe(a, 2)} mL.`));
+      if (!t.pen && !n.disabled && toNum(n.value) > 0) {
+        const e = currentBatch(t.compoundId),
+          a = toNum(n.value);
+        e && a !== toNum(e.bacMl) && ((e.bacMl = String(a)), (i = ` Water set to ${fmt(a, 2)} mL.`));
       }
-      const l = d.protocols.findIndex((e) => e.id === t.id);
-      (l >= 0 ? (d.protocols[l] = t) : d.protocols.push(t),
-        s(),
-        DX(),
-        Rt(),
+      const l = appData.protocols.findIndex((e) => e.id === t.id);
+      (l >= 0 ? (appData.protocols[l] = t) : appData.protocols.push(t),
+        saveData(),
+        draftClear(),
+        closeForm(),
         redrawPage(),
         toast((l >= 0 ? "Protocol saved." : "Protocol added.") + i));
     }));
@@ -2730,108 +2730,108 @@ function Mn(e) {
   f &&
     f.addEventListener("click", () => {
       confirm("Delete this protocol? Shots already logged stay in your history.") &&
-        ((d.protocols = d.protocols.filter((e) => e.id !== t.id)),
-        s(),
-        DX(),
-        Rt(),
+        ((appData.protocols = appData.protocols.filter((e) => e.id !== t.id)),
+        saveData(),
+        draftClear(),
+        closeForm(),
         redrawPage(),
         toast("Protocol deleted."));
     });
 }
-function xn() {
-  const e = Bt('<div class="stack"></div>'),
-    t = [...new Set(d.batches.filter((e) => "finished" !== e.status).map((e) => e.compoundId))];
+function stockView() {
+  const e = htmlEl('<div class="stack"></div>'),
+    t = [...new Set(appData.batches.filter((e) => "finished" !== e.status).map((e) => e.compoundId))];
   (e.appendChild(
-    Bt(
+    htmlEl(
       `<div class="head"><div><h1>Stock</h1>\n    <p>${t.length} compound${1 === t.length ? "" : "s"} in stock. Every logged shot, and anything you purge priming the needle, comes off the open vial.</p></div>\n    <button class="btn" data-newbatch="1">Add stock</button></div>`,
     ),
   ),
     t.length ||
       e.appendChild(
-        Bt(
+        htmlEl(
           '<div class="panel"><div class="empty"><b>Nothing in stock</b>Add a batch and the countdown starts.</div></div>',
         ),
       ));
   let n = !1;
-  for (const a of vt(t)) {
-    mt(a) ||
+  for (const a of sortCompoundIds(t)) {
+    isRunning(a) ||
       n ||
-      ((n = !0), e.appendChild(Bt('<div class="eyebrow" style="margin:6px 0 -6px">Not running</div>')));
-    const t = Ce(a),
-      s = De(a),
-      o = At(a),
-      i = $t(a),
-      l = be(d.settings.targetDays) || 90,
-      r = null === o ? null : ne(te(), o),
-      c = xt(a),
-      u = Mt(a),
-      p = d.protocols.filter((e) => e.compoundId === a && e.active),
-      h = Bt(
-        `<div class="panel"><div class="pbody">\n      <div class="spread" style="margin-bottom:2px"><b style="font-size:17px">${Ht(t.name)}</b>\n        <span class="pill ${i.cls}">${Ht(i.text)}</span></div>\n      <div class="muted tiny" style="margin-bottom:16px">${Ht($e(wt(a), t))} on hand · ${kt(a)} sealed vial${1 === kt(a) ? "" : "s"} · ${St(a)} open</div>\n      <div class="grid2">\n        <div>\n          <div class="eyebrow">How long it lasts</div>\n          <div class="spread" style="align-items:baseline">\n            <div class="big-read" style="color:${null === o ? "var(--ink-2)" : o >= l ? "var(--done)" : o < 0.34 * l ? "var(--alert)" : "var(--due)"}">${null === o ? "—" : Ht(ke(o))}<small> left</small></div>\n            <span class="tiny muted">${r ? "until " + Ht(oe(r)) : ""}</span></div>\n          <div class="bar ${null === o ? "" : o >= l ? "good" : o < 0.34 * l ? "bad" : "warn"}" style="margin:10px 0 4px">\n            <i style="width:${null === o ? 0 : Math.min(100, (o / l) * 100)}%"></i></div>\n          <div class="tiny muted">${null === o ? "No active protocol draws on this." : o >= l ? `At or above your ${l}-day target` : `Below your ${l}-day target`}</div>\n        </div>\n        <div>\n          <div class="eyebrow">Drawn down by</div>\n          ${
+      ((n = !0), e.appendChild(htmlEl('<div class="eyebrow" style="margin:6px 0 -6px">Not running</div>')));
+    const t = compoundById(a),
+      s = liveBatches(a),
+      o = daysLeft(a),
+      i = stockStatus(a),
+      l = toNum(appData.settings.targetDays) || 90,
+      r = null === o ? null : addDays(todayIso(), o),
+      c = dosesLeft(a),
+      u = dailyUse(a),
+      p = appData.protocols.filter((e) => e.compoundId === a && e.active),
+      h = htmlEl(
+        `<div class="panel"><div class="pbody">\n      <div class="spread" style="margin-bottom:2px"><b style="font-size:17px">${esc(t.name)}</b>\n        <span class="pill ${i.cls}">${esc(i.text)}</span></div>\n      <div class="muted tiny" style="margin-bottom:16px">${esc(fmtAmount(stockMg(a), t))} on hand · ${sealedCount(a)} sealed vial${1 === sealedCount(a) ? "" : "s"} · ${openVialCount(a)} open</div>\n      <div class="grid2">\n        <div>\n          <div class="eyebrow">How long it lasts</div>\n          <div class="spread" style="align-items:baseline">\n            <div class="big-read" style="color:${null === o ? "var(--ink-2)" : o >= l ? "var(--done)" : o < 0.34 * l ? "var(--alert)" : "var(--due)"}">${null === o ? "—" : esc(fmtDuration(o))}<small> left</small></div>\n            <span class="tiny muted">${r ? "until " + esc(shortDateYear(r)) : ""}</span></div>\n          <div class="bar ${null === o ? "" : o >= l ? "good" : o < 0.34 * l ? "bad" : "warn"}" style="margin:10px 0 4px">\n            <i style="width:${null === o ? 0 : Math.min(100, (o / l) * 100)}%"></i></div>\n          <div class="tiny muted">${null === o ? "No active protocol draws on this." : o >= l ? `At or above your ${l}-day target` : `Below your ${l}-day target`}</div>\n        </div>\n        <div>\n          <div class="eyebrow">Drawn down by</div>\n          ${
           p.length
             ? p
                 .map((e) => {
-                  const t = Ge(e, te());
-                  return `<div class="tiny" style="margin-bottom:3px">${Ht(fe(be(t.dose), 3))} ${Ht("iu" === t.unit ? "IU" : t.unit)} ${Ht(_e(e).toLowerCase())}</div>`;
+                  const t = doseOn(e, todayIso());
+                  return `<div class="tiny" style="margin-bottom:3px">${esc(fmt(toNum(t.dose), 3))} ${esc("iu" === t.unit ? "IU" : t.unit)} ${esc(scheduleText(e).toLowerCase())}</div>`;
                 })
                 .join("")
             : '<div class="tiny muted">Nothing active.</div>'
-        }\n          ${null !== c ? `<div class="tiny muted" style="margin-top:6px">${c} doses left · ${fe(u, 3)} ${xe(t)} a day</div>` : ""}\n        </div>\n      </div>\n      <div id="bl-${a}" style="margin-top:16px;border-top:1px solid var(--rule-soft)"></div>\n    </div></div>`,
+        }\n          ${null !== c ? `<div class="tiny muted" style="margin-top:6px">${c} doses left · ${fmt(u, 3)} ${massUnit(t)} a day</div>` : ""}\n        </div>\n      </div>\n      <div id="bl-${a}" style="margin-top:16px;border-top:1px solid var(--rule-soft)"></div>\n    </div></div>`,
       ),
       m = h.querySelector("#bl-" + a);
     for (const e of s) {
-      const n = Dt(e),
-        a = be(e.startVials) * be(e.vialMg);
+      const n = usedPercent(e),
+        a = toNum(e.startVials) * toNum(e.vialMg);
       m.appendChild(
-        Bt(
-          `<div class="listrow" style="padding:12px 0">\n        <span style="display:flex;gap:2px;flex:none">${jt(be(e.openMg) / (be(e.vialMg) || 1), t.color, 30)}${e.sealed > 0 ? jt(1, t.color, 30) : ""}</span>\n        <span><span class="lname">${Ht(e.vialMg)} ${xe(t)} vial</span>\n          <span class="lmeta">${e.sealed} sealed · ${Ht($e(be(e.openMg), t))} open${e.bacMl ? ` · mixed with ${Ht(e.bacMl)} mL` : " · not mixed yet"}${e.vendor ? " · " + Ht(e.vendor) : ""}${e.lot ? " · lot " + Ht(e.lot) : ""}</span></span>\n        <span class="lright" style="min-width:180px;display:block">\n          <div class="bar" style="margin-bottom:4px"><i style="width:${n}%;background:${t.color}"></i></div>\n          <span class="tiny muted">${Math.round(n)}% used · ${Ht($e(a - (be(e.sealed) * be(e.vialMg) + be(e.openMg)), t))} of ${Ht($e(a, t))}</span></span>\n        <span class="lright"><button class="btn ghost sm" data-editbatch="${e.id}">Edit</button></span></div>`,
+        htmlEl(
+          `<div class="listrow" style="padding:12px 0">\n        <span style="display:flex;gap:2px;flex:none">${vialSvg(toNum(e.openMg) / (toNum(e.vialMg) || 1), t.color, 30)}${e.sealed > 0 ? vialSvg(1, t.color, 30) : ""}</span>\n        <span><span class="lname">${esc(e.vialMg)} ${massUnit(t)} vial</span>\n          <span class="lmeta">${e.sealed} sealed · ${esc(fmtAmount(toNum(e.openMg), t))} open${e.bacMl ? ` · mixed with ${esc(e.bacMl)} mL` : " · not mixed yet"}${e.vendor ? " · " + esc(e.vendor) : ""}${e.lot ? " · lot " + esc(e.lot) : ""}</span></span>\n        <span class="lright" style="min-width:180px;display:block">\n          <div class="bar" style="margin-bottom:4px"><i style="width:${n}%;background:${t.color}"></i></div>\n          <span class="tiny muted">${Math.round(n)}% used · ${esc(fmtAmount(a - (toNum(e.sealed) * toNum(e.vialMg) + toNum(e.openMg)), t))} of ${esc(fmtAmount(a, t))}</span></span>\n        <span class="lright"><button class="btn ghost sm" data-editbatch="${e.id}">Edit</button></span></div>`,
         ),
       );
     }
     e.appendChild(h);
   }
-  const a = Bt('<div class="grid2"></div>'),
-    s = Bt(
+  const a = htmlEl('<div class="grid2"></div>'),
+    s = htmlEl(
       '<div class="panel"><h2>Solutions<button class="btn ghost sm" data-newsol="1">Add solution</button></h2><div id="sl"></div></div>',
     ),
     o = s.querySelector("#sl");
-  d.solutions.length ||
+  appData.solutions.length ||
     o.appendChild(
-      Bt(
+      htmlEl(
         '<div class="empty tiny">No bacteriostatic water or diluent tracked. Add some and mixing a vial will draw from it.</div>',
       ),
     );
-  for (const e of d.solutions)
+  for (const e of appData.solutions)
     o.appendChild(
-      Bt(
-        `<div class="listrow"><span><span class="lname">${Ht(e.name)}</span>\n      <span class="lmeta">${Ht(fe(be(e.ml), 1))} mL left of ${Ht(fe(be(e.startMl), 1))} mL${e.vendor ? " · " + Ht(e.vendor) : ""}</span></span>\n      <span class="lright"><button class="btn ghost sm" data-editsol="${e.id}">Edit</button></span></div>`,
+      htmlEl(
+        `<div class="listrow"><span><span class="lname">${esc(e.name)}</span>\n      <span class="lmeta">${esc(fmt(toNum(e.ml), 1))} mL left of ${esc(fmt(toNum(e.startMl), 1))} mL${e.vendor ? " · " + esc(e.vendor) : ""}</span></span>\n      <span class="lright"><button class="btn ghost sm" data-editsol="${e.id}">Edit</button></span></div>`,
       ),
     );
-  const i = Bt(
+  const i = htmlEl(
       '<div class="panel"><h2>Supplies<button class="btn ghost sm" data-newsup="1">Add supply</button></h2><div id="su"></div></div>',
     ),
     l = i.querySelector("#su");
-  d.supplies.length ||
+  appData.supplies.length ||
     l.appendChild(
-      Bt(
+      htmlEl(
         '<div class="empty tiny">Filters, syringes, pen needles — anything a mix or a shot uses up. Give one a rule and it counts itself down.</div>',
       ),
     );
-  for (const e of d.supplies) {
-    const t = be(e.count) <= be(e.lowAt || 10);
+  for (const e of appData.supplies) {
+    const t = toNum(e.count) <= toNum(e.lowAt || 10);
     l.appendChild(
-      Bt(
-        `<div class="listrow"><span><span class="lname">${Ht(e.name)}</span>\n      <span class="lmeta">${Ht(e.each || 1)} per ${"mix" === e.per ? "mix" : "shot"}</span></span>\n      <span class="lright"><span class="pill ${t ? "late" : ""}">${Ht(fe(be(e.count), 0))} left</span>\n        <button class="btn ghost sm" data-editsup="${e.id}">Edit</button></span></div>`,
+      htmlEl(
+        `<div class="listrow"><span><span class="lname">${esc(e.name)}</span>\n      <span class="lmeta">${esc(e.each || 1)} per ${"mix" === e.per ? "mix" : "shot"}</span></span>\n      <span class="lright"><span class="pill ${t ? "late" : ""}">${esc(fmt(toNum(e.count), 0))} left</span>\n        <button class="btn ghost sm" data-editsup="${e.id}">Edit</button></span></div>`,
       ),
     );
   }
   return (a.appendChild(s), a.appendChild(i), e.appendChild(a), e);
 }
-function An(e) {
+function batchForm(e) {
   const t = e
-      ? Object.assign({}, qe(e))
+      ? Object.assign({}, batchById(e))
       : {
-          id: ve(),
+          id: newId(),
           compoundId: "",
           vialMg: 5,
           sealed: 1,
@@ -2842,26 +2842,26 @@ function An(e) {
           vendor: "",
           lot: "",
           coa: "",
-          received: te(),
+          received: todayIso(),
           expiry: "",
           notes: "",
           status: "sealed",
         },
-    n = (t.compoundId && (Ce(t.compoundId) || {}).name) || "",
-    a = be(t.openMg) > 0,
+    n = (t.compoundId && (compoundById(t.compoundId) || {}).name) || "",
+    a = toNum(t.openMg) > 0,
     o = t.bacMl || "";
-  Vt(
+  openForm(
     e ? "Edit stock" : "Add stock",
-    `\n    <datalist id="lib2">${u.map((e) => `<option value="${Ht(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="b-name">Compound</label><input id="b-name" list="lib2" value="${Ht(n)}" placeholder="Start typing — the list has common ones"></div>\n    <div class="field"><label for="b-mg">Strength per vial</label>\n      <div class="unitwrap"><input id="b-mg" type="number" step="any" min="0" value="${Ht(t.vialMg)}">\n        <select id="b-unit"><option value="mg"${"iu" !== t.vialUnit ? " selected" : ""}>mg</option>\n          <option value="iu"${"iu" === t.vialUnit ? " selected" : ""}>IU</option></select></div>\n      <span class="hint">What the vial is labelled as, before you mix it. Choose IU for anything labelled that way — the compound is then held in IU everywhere.</span></div>\n    <div class="fgrid">\n      <div class="field"><label for="b-sealed">Sealed vials</label><input id="b-sealed" type="number" min="0" step="1" value="${Ht(t.sealed)}">\n        <span class="hint">Unopened vials in this batch.</span></div>\n      <div class="field"><label for="b-start">Vials in the batch to start with</label>\n        <input id="b-start" type="number" min="0" step="1" value="${Ht(t.startVials)}" placeholder="Same as unopened">\n        <span class="hint">Only if you have already used some — it is what the used percentage is measured against.</span></div>\n    </div>\n    <div id="b-more"></div><button class="btn ghost sm" type="button" id="b-addrow" style="margin:0 0 14px">+ Add another strength</button><label class="check"><input type="checkbox" id="b-hasopen" ${a ? "checked" : ""}><span>I have a vial already open</span></label>\n    <div class="b-openrow"><button class="btn ghost sm" type="button" id="b-opennew">Open new vial</button>\n      <span class="hint" id="b-openhint"${a && e && t.reconDate === te() ? ' style="color:var(--due)"' : ""}>${a && e && t.reconDate === te() ? "A vial was already opened today. Only press this if you have opened another one." : "Takes one from Sealed vials, fills the open vial to full strength and sets Mixed on to today."}</span></div>\n    <div id="b-open" ${a ? "" : "hidden"}>\n      <div class="fgrid3">\n        <div class="field"><label for="b-openmg">Left in the open vial (mg)</label><input id="b-openmg" type="number" step="any" min="0" value="${Ht(t.openMg || t.vialMg)}"></div>\n        <div class="field"><label for="b-bac">Water it was mixed with (mL)</label><input id="b-bac" type="number" step="any" min="0" value="${Ht(t.bacMl)}"></div>\n        <div class="field"><label for="b-recon">Mixed on</label><input id="b-recon" type="date" value="${Ht(t.reconDate)}"></div>\n      </div></div>\n    <details class="batch"><summary>Batch details (optional)</summary><div>\n      <div class="fgrid"><div class="field"><label for="b-vendor">Source</label><input id="b-vendor" value="${Ht(t.vendor)}"></div>\n        <div class="field"><label for="b-lot">Lot</label><input id="b-lot" value="${Ht(t.lot)}"></div></div>\n      <div class="fgrid"><div class="field"><label for="b-recv">Received</label><input id="b-recv" type="date" value="${Ht(t.received)}"></div>\n        <div class="field"><label for="b-exp">Use by</label><input id="b-exp" type="date" value="${Ht(t.expiry)}"></div></div>\n      <div class="field"><label for="b-coa">CoA link</label><input id="b-coa" value="${Ht(t.coa)}" placeholder="https://"></div>\n      <div class="field"><label for="b-notes">Notes</label><textarea id="b-notes">${Ht(t.notes)}</textarea></div>\n    </div></details>\n    <p id="b-prev" class="tiny mono muted"></p>`,
+    `\n    <datalist id="lib2">${COMPOUND_LIST.map((e) => `<option value="${esc(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="b-name">Compound</label><input id="b-name" list="lib2" value="${esc(n)}" placeholder="Start typing — the list has common ones"></div>\n    <div class="field"><label for="b-mg">Strength per vial</label>\n      <div class="unitwrap"><input id="b-mg" type="number" step="any" min="0" value="${esc(t.vialMg)}">\n        <select id="b-unit"><option value="mg"${"iu" !== t.vialUnit ? " selected" : ""}>mg</option>\n          <option value="iu"${"iu" === t.vialUnit ? " selected" : ""}>IU</option></select></div>\n      <span class="hint">What the vial is labelled as, before you mix it. Choose IU for anything labelled that way — the compound is then held in IU everywhere.</span></div>\n    <div class="fgrid">\n      <div class="field"><label for="b-sealed">Sealed vials</label><input id="b-sealed" type="number" min="0" step="1" value="${esc(t.sealed)}">\n        <span class="hint">Unopened vials in this batch.</span></div>\n      <div class="field"><label for="b-start">Vials in the batch to start with</label>\n        <input id="b-start" type="number" min="0" step="1" value="${esc(t.startVials)}" placeholder="Same as unopened">\n        <span class="hint">Only if you have already used some — it is what the used percentage is measured against.</span></div>\n    </div>\n    <div id="b-more"></div><button class="btn ghost sm" type="button" id="b-addrow" style="margin:0 0 14px">+ Add another strength</button><label class="check"><input type="checkbox" id="b-hasopen" ${a ? "checked" : ""}><span>I have a vial already open</span></label>\n    <div class="b-openrow"><button class="btn ghost sm" type="button" id="b-opennew">Open new vial</button>\n      <span class="hint" id="b-openhint"${a && e && t.reconDate === todayIso() ? ' style="color:var(--due)"' : ""}>${a && e && t.reconDate === todayIso() ? "A vial was already opened today. Only press this if you have opened another one." : "Takes one from Sealed vials, fills the open vial to full strength and sets Mixed on to today."}</span></div>\n    <div id="b-open" ${a ? "" : "hidden"}>\n      <div class="fgrid3">\n        <div class="field"><label for="b-openmg">Left in the open vial (mg)</label><input id="b-openmg" type="number" step="any" min="0" value="${esc(t.openMg || t.vialMg)}"></div>\n        <div class="field"><label for="b-bac">Water it was mixed with (mL)</label><input id="b-bac" type="number" step="any" min="0" value="${esc(t.bacMl)}"></div>\n        <div class="field"><label for="b-recon">Mixed on</label><input id="b-recon" type="date" value="${esc(t.reconDate)}"></div>\n      </div></div>\n    <details class="batch"><summary>Batch details (optional)</summary><div>\n      <div class="fgrid"><div class="field"><label for="b-vendor">Source</label><input id="b-vendor" value="${esc(t.vendor)}"></div>\n        <div class="field"><label for="b-lot">Lot</label><input id="b-lot" value="${esc(t.lot)}"></div></div>\n      <div class="fgrid"><div class="field"><label for="b-recv">Received</label><input id="b-recv" type="date" value="${esc(t.received)}"></div>\n        <div class="field"><label for="b-exp">Use by</label><input id="b-exp" type="date" value="${esc(t.expiry)}"></div></div>\n      <div class="field"><label for="b-coa">CoA link</label><input id="b-coa" value="${esc(t.coa)}" placeholder="https://"></div>\n      <div class="field"><label for="b-notes">Notes</label><textarea id="b-notes">${esc(t.notes)}</textarea></div>\n    </div></details>\n    <p id="b-prev" class="tiny mono muted"></p>`,
     `${e ? '<button class="btn danger" id="b-del">Delete</button>' : ""}\n     <button class="btn ghost" data-close>Cancel</button><button class="btn" id="b-save">${e ? "Save" : "Add to stock"}</button>`,
   );
-  const i = Ot("#modal");
-  Qt(i.querySelector("#b-name"), Ut);
+  const i = qs("#modal");
+  comboBox(i.querySelector("#b-name"), compoundNameOptions);
   const l = i.querySelector("#b-hasopen");
   let r = !1;
   l.addEventListener("change", () => {
     if (l.checked) {
-      const e = Math.max(0, Math.round(be(m.value)));
+      const e = Math.max(0, Math.round(toNum(m.value)));
       e > 0 && ((m.value = e - 1), (r = !0));
     }
     ((i.querySelector("#b-open").hidden = !l.checked), g(), w());
@@ -2871,31 +2871,31 @@ function An(e) {
     h = i.querySelector("#b-openhint"),
     m = i.querySelector("#b-sealed"),
     g = () => {
-      p.disabled = Math.round(be(m.value)) < 1;
+      p.disabled = Math.round(toNum(m.value)) < 1;
     };
   (p.addEventListener("click", () => {
-    const t = Math.round(be(m.value));
+    const t = Math.round(toNum(m.value));
     if (t < 1) return void toast("No sealed vials left to open.");
-    const n = be(i.querySelector("#b-mg").value);
+    const n = toNum(i.querySelector("#b-mg").value);
     if (!n) return void toast("Enter the strength per vial first.");
     ((m.value = t - 1),
       l.checked || ((l.checked = !0), (i.querySelector("#b-open").hidden = !1)),
       (i.querySelector("#b-openmg").value = n),
-      (i.querySelector("#b-recon").value = te()),
+      (i.querySelector("#b-recon").value = todayIso()),
       c++,
       (h.style.color = ""),
       (h.textContent = `${1 === c ? "New vial opened" : c + " new vials opened"}. Press ${e ? "Save" : "Add to stock"} to keep it, or Cancel to undo.`),
       g(),
       w());
     const a = i.querySelector("#b-bac");
-    be(a.value) || a.focus();
+    toNum(a.value) || a.focus();
   }),
     m.addEventListener("input", g),
     g(),
     l.addEventListener("change", () => {
       l.checked ||
         (!c && !r) ||
-        ((m.value = Math.round(be(m.value)) + c + (r ? 1 : 0)),
+        ((m.value = Math.round(toNum(m.value)) + c + (r ? 1 : 0)),
         (c = 0),
         (r = !1),
         (h.textContent =
@@ -2911,8 +2911,8 @@ function An(e) {
     };
   v &&
     (i.querySelector("#b-addrow").addEventListener("click", () => {
-      const e = Bt(
-        `<div class="b-row">\n        <div class="b-top">\n          <div class="field" style="flex:1"><label>Strength (<span class="b-ru">mg</span>)</label><input class="b-rmg" type="number" step="any" min="0"></div>\n          <div class="field" style="flex:1"><label>Sealed vials</label><input class="b-rsealed" type="number" min="0" step="1" value="1"></div>\n          <div class="field"><button class="btn ghost b-rm" type="button" aria-label="Remove this strength">×</button></div>\n        </div>\n        <details class="batch"><summary>Batch details (optional)</summary><div>\n          <div class="fgrid"><div class="field"><label>Source</label><input class="b-rvendor"></div>\n            <div class="field"><label>Lot</label><input class="b-rlot"></div></div>\n          <div class="fgrid"><div class="field"><label>Received</label><input class="b-rrecv" type="date" value="${te()}"></div>\n            <div class="field"><label>Use by</label><input class="b-rexp" type="date"></div></div>\n          <div class="field"><label>CoA link</label><input class="b-rcoa" placeholder="https://"></div>\n          <div class="field"><label>Notes</label><textarea class="b-rnotes"></textarea></div>\n        </div></details></div>`,
+      const e = htmlEl(
+        `<div class="b-row">\n        <div class="b-top">\n          <div class="field" style="flex:1"><label>Strength (<span class="b-ru">mg</span>)</label><input class="b-rmg" type="number" step="any" min="0"></div>\n          <div class="field" style="flex:1"><label>Sealed vials</label><input class="b-rsealed" type="number" min="0" step="1" value="1"></div>\n          <div class="field"><button class="btn ghost b-rm" type="button" aria-label="Remove this strength">×</button></div>\n        </div>\n        <details class="batch"><summary>Batch details (optional)</summary><div>\n          <div class="fgrid"><div class="field"><label>Source</label><input class="b-rvendor"></div>\n            <div class="field"><label>Lot</label><input class="b-rlot"></div></div>\n          <div class="fgrid"><div class="field"><label>Received</label><input class="b-rrecv" type="date" value="${todayIso()}"></div>\n            <div class="field"><label>Use by</label><input class="b-rexp" type="date"></div></div>\n          <div class="field"><label>CoA link</label><input class="b-rcoa" placeholder="https://"></div>\n          <div class="field"><label>Notes</label><textarea class="b-rnotes"></textarea></div>\n        </div></details></div>`,
       );
       (v.appendChild(e), y(), w(), e.querySelector(".b-rmg").focus());
     }),
@@ -2923,14 +2923,14 @@ function An(e) {
     }),
     i.querySelector("#b-unit").addEventListener("change", y));
   const f = () => {
-      ((t.vialMg = be(i.querySelector("#b-mg").value)),
+      ((t.vialMg = toNum(i.querySelector("#b-mg").value)),
         (t.vialUnit = i.querySelector("#b-unit").value),
-        (t.sealed = Math.max(0, Math.round(be(i.querySelector("#b-sealed").value)))));
+        (t.sealed = Math.max(0, Math.round(toNum(i.querySelector("#b-sealed").value)))));
       const e = i.querySelector("#b-start").value;
-      ((t.openMg = l.checked ? be(i.querySelector("#b-openmg").value) : 0),
+      ((t.openMg = l.checked ? toNum(i.querySelector("#b-openmg").value) : 0),
         (t.bacMl = l.checked ? i.querySelector("#b-bac").value : a ? "" : o),
         (t.reconDate = l.checked ? i.querySelector("#b-recon").value : ""),
-        (t.startVials = "" !== e ? be(e) : t.sealed + (l.checked ? 1 : 0)),
+        (t.startVials = "" !== e ? toNum(e) : t.sealed + (l.checked ? 1 : 0)),
         (t.vendor = i.querySelector("#b-vendor").value.trim()),
         (t.lot = i.querySelector("#b-lot").value.trim()),
         (t.received = i.querySelector("#b-recv").value),
@@ -2945,14 +2945,14 @@ function An(e) {
           t.sealed * t.vialMg +
           t.openMg +
           b().reduce(
-            (e, t) => e + be(t.querySelector(".b-rmg").value) * be(t.querySelector(".b-rsealed").value),
+            (e, t) => e + toNum(t.querySelector(".b-rmg").value) * toNum(t.querySelector(".b-rsealed").value),
             0,
           ),
-        n = be(t.bacMl) ? t.vialMg / be(t.bacMl) : 0,
+        n = toNum(t.bacMl) ? t.vialMg / toNum(t.bacMl) : 0,
         a = { base: "iu" === i.querySelector("#b-unit").value ? "iu" : "mg" },
-        s = Math.max(0, Math.round(be(t.startVials)));
+        s = Math.max(0, Math.round(toNum(t.startVials)));
       i.querySelector("#b-prev").textContent =
-        `${$e(e, a)} on hand${s ? ` · batch of ${s} vial${1 === s ? "" : "s"}` : ""}${n ? ` · open vial at ${fe(n, 2)} ${Ae(a)}` : ""}`;
+        `${fmtAmount(e, a)} on hand${s ? ` · batch of ${s} vial${1 === s ? "" : "s"}` : ""}${n ? ` · open vial at ${fmt(n, 2)} ${concUnit(a)}` : ""}`;
     };
   (i.querySelectorAll("input,textarea").forEach((e) => e.addEventListener("input", w)),
     w(),
@@ -2960,17 +2960,17 @@ function An(e) {
       f();
       const n = i.querySelector("#b-name").value.trim();
       if (!n) return void toast("Name the compound first.");
-      const a = Pe(n);
+      const a = findOrAddCompound(n);
       if (((a.base = "iu" === t.vialUnit ? "iu" : a.base || "mg"), (t.compoundId = a.id), !t.vialMg))
         return void toast("Enter what the vial is labelled as.");
-      const o = d.batches.findIndex((e) => e.id === t.id);
-      o >= 0 ? (d.batches[o] = t) : d.batches.push(t);
+      const o = appData.batches.findIndex((e) => e.id === t.id);
+      o >= 0 ? (appData.batches[o] = t) : appData.batches.push(t);
       const u = c + (r ? 1 : 0),
         p = l.checked ? (e ? u : Math.max(1, u)) : 0;
-      if ((l.checked && u && (t.openTok = ve()), be(t.bacMl))) for (let e = 0; e < p; e++) $n(be(t.bacMl));
+      if ((l.checked && u && (t.openTok = newId()), toNum(t.bacMl))) for (let e = 0; e < p; e++) useWater(toNum(t.bacMl));
       for (const e of b()) {
-        const n = be(e.querySelector(".b-rmg").value),
-          a = Math.max(0, Math.round(be(e.querySelector(".b-rsealed").value)));
+        const n = toNum(e.querySelector(".b-rmg").value),
+          a = Math.max(0, Math.round(toNum(e.querySelector(".b-rsealed").value)));
         if (!n || !a) continue;
         const s = e.querySelector(".b-rvendor").value.trim(),
           o = e.querySelector(".b-rlot").value.trim(),
@@ -2978,8 +2978,8 @@ function An(e) {
           l = e.querySelector(".b-rexp").value,
           r = e.querySelector(".b-rcoa").value.trim(),
           c = e.querySelector(".b-rnotes").value;
-        d.batches.push({
-          id: ve(),
+        appData.batches.push({
+          id: newId(),
           compoundId: t.compoundId,
           vialMg: n,
           vialUnit: t.vialUnit,
@@ -2997,238 +2997,238 @@ function An(e) {
           status: "sealed",
         });
       }
-      (s(), Rt(), redrawPage(), toast("Stock saved."));
+      (saveData(), closeForm(), redrawPage(), toast("Stock saved."));
     }));
   const k = i.querySelector("#b-del");
   k &&
     k.addEventListener("click", () => {
       confirm("Delete this batch?") &&
-        ((d.batches = d.batches.filter((e) => e.id !== t.id)), s(), Rt(), redrawPage(), toast("Batch deleted."));
+        ((appData.batches = appData.batches.filter((e) => e.id !== t.id)), saveData(), closeForm(), redrawPage(), toast("Batch deleted."));
     });
 }
-function $n(e) {
-  const t = d.solutions.find((e) => be(e.ml) > 0);
-  return (t && ((t.ml = Math.max(0, ye(be(t.ml) - e, 3))), fn("mix")), t ? t.id : "");
+function useWater(e) {
+  const t = appData.solutions.find((e) => toNum(e.ml) > 0);
+  return (t && ((t.ml = Math.max(0, roundTo(toNum(t.ml) - e, 3))), useSupplies("mix")), t ? t.id : "");
 }
-function In(e) {
+function solutionForm(e) {
   const t = e
     ? Object.assign(
         {},
-        d.solutions.find((t) => t.id === e),
+        appData.solutions.find((t) => t.id === e),
       )
-    : { id: ve(), name: "Bacteriostatic water", ml: 30, startMl: 30, vendor: "", notes: "" };
-  Vt(
+    : { id: newId(), name: "Bacteriostatic water", ml: 30, startMl: 30, vendor: "", notes: "" };
+  openForm(
     e ? "Edit solution" : "Add solution",
-    `\n    <div class="field"><label for="s-n">Name</label><input id="s-n" value="${Ht(t.name)}"></div>\n    <div class="fgrid"><div class="field"><label for="s-ml">Left (mL)</label><input id="s-ml" type="number" step="any" min="0" value="${Ht(t.ml)}"></div>\n      <div class="field"><label for="s-st">Started with (mL)</label><input id="s-st" type="number" step="any" min="0" value="${Ht(t.startMl)}"></div></div>\n    <div class="field"><label for="s-v">Source</label><input id="s-v" value="${Ht(t.vendor)}"></div>`,
+    `\n    <div class="field"><label for="s-n">Name</label><input id="s-n" value="${esc(t.name)}"></div>\n    <div class="fgrid"><div class="field"><label for="s-ml">Left (mL)</label><input id="s-ml" type="number" step="any" min="0" value="${esc(t.ml)}"></div>\n      <div class="field"><label for="s-st">Started with (mL)</label><input id="s-st" type="number" step="any" min="0" value="${esc(t.startMl)}"></div></div>\n    <div class="field"><label for="s-v">Source</label><input id="s-v" value="${esc(t.vendor)}"></div>`,
     (e ? '<button class="btn danger" id="s-del">Delete</button>' : "") +
       '\n     <button class="btn ghost" data-close>Cancel</button><button class="btn" id="s-save">Save</button>',
   );
-  const n = Ot("#modal");
+  const n = qs("#modal");
   n.querySelector("#s-save").addEventListener("click", () => {
     ((t.name = n.querySelector("#s-n").value.trim() || "Solution"),
-      (t.ml = be(n.querySelector("#s-ml").value)),
-      (t.startMl = be(n.querySelector("#s-st").value) || t.ml),
+      (t.ml = toNum(n.querySelector("#s-ml").value)),
+      (t.startMl = toNum(n.querySelector("#s-st").value) || t.ml),
       (t.vendor = n.querySelector("#s-v").value.trim()));
-    const e = d.solutions.findIndex((e) => e.id === t.id);
-    (e >= 0 ? (d.solutions[e] = t) : d.solutions.push(t), s(), Rt(), redrawPage(), toast("Solution saved."));
+    const e = appData.solutions.findIndex((e) => e.id === t.id);
+    (e >= 0 ? (appData.solutions[e] = t) : appData.solutions.push(t), saveData(), closeForm(), redrawPage(), toast("Solution saved."));
   });
   const a = n.querySelector("#s-del");
   a &&
     a.addEventListener("click", () => {
-      ((d.solutions = d.solutions.filter((e) => e.id !== t.id)), s(), Rt(), redrawPage());
+      ((appData.solutions = appData.solutions.filter((e) => e.id !== t.id)), saveData(), closeForm(), redrawPage());
     });
 }
-function Cn(e) {
+function supplyForm(e) {
   const t = e
     ? Object.assign(
         {},
-        d.supplies.find((t) => t.id === e),
+        appData.supplies.find((t) => t.id === e),
       )
-    : { id: ve(), name: "Insulin syringes", count: 100, each: 1, per: "shot", lowAt: 10 };
-  Vt(
+    : { id: newId(), name: "Insulin syringes", count: 100, each: 1, per: "shot", lowAt: 10 };
+  openForm(
     e ? "Edit supply" : "Add supply",
-    `\n    <div class="field"><label for="u-n">Name</label><input id="u-n" value="${Ht(t.name)}"></div>\n    <div class="fgrid3">\n      <div class="field"><label for="u-c">How many left</label><input id="u-c" type="number" step="1" min="0" value="${Ht(t.count)}"></div>\n      <div class="field"><label for="u-e">Used each time</label><input id="u-e" type="number" step="any" min="0" value="${Ht(t.each)}"></div>\n      <div class="field"><label for="u-p">Counts down on</label><select id="u-p">\n        <option value="shot"${"shot" === t.per ? " selected" : ""}>Every shot</option>\n        <option value="mix"${"mix" === t.per ? " selected" : ""}>Every mix</option></select></div></div>\n    <div class="field"><label for="u-l">Warn me at</label><input id="u-l" type="number" step="1" min="0" value="${Ht(t.lowAt)}"></div>`,
+    `\n    <div class="field"><label for="u-n">Name</label><input id="u-n" value="${esc(t.name)}"></div>\n    <div class="fgrid3">\n      <div class="field"><label for="u-c">How many left</label><input id="u-c" type="number" step="1" min="0" value="${esc(t.count)}"></div>\n      <div class="field"><label for="u-e">Used each time</label><input id="u-e" type="number" step="any" min="0" value="${esc(t.each)}"></div>\n      <div class="field"><label for="u-p">Counts down on</label><select id="u-p">\n        <option value="shot"${"shot" === t.per ? " selected" : ""}>Every shot</option>\n        <option value="mix"${"mix" === t.per ? " selected" : ""}>Every mix</option></select></div></div>\n    <div class="field"><label for="u-l">Warn me at</label><input id="u-l" type="number" step="1" min="0" value="${esc(t.lowAt)}"></div>`,
     (e ? '<button class="btn danger" id="u-del">Delete</button>' : "") +
       '\n     <button class="btn ghost" data-close>Cancel</button><button class="btn" id="u-save">Save</button>',
   );
-  const n = Ot("#modal");
+  const n = qs("#modal");
   n.querySelector("#u-save").addEventListener("click", () => {
     ((t.name = n.querySelector("#u-n").value.trim() || "Supply"),
-      (t.count = be(n.querySelector("#u-c").value)),
-      (t.each = be(n.querySelector("#u-e").value) || 1),
+      (t.count = toNum(n.querySelector("#u-c").value)),
+      (t.each = toNum(n.querySelector("#u-e").value) || 1),
       (t.per = n.querySelector("#u-p").value),
-      (t.lowAt = be(n.querySelector("#u-l").value)));
-    const e = d.supplies.findIndex((e) => e.id === t.id);
-    (e >= 0 ? (d.supplies[e] = t) : d.supplies.push(t), s(), Rt(), redrawPage(), toast("Supply saved."));
+      (t.lowAt = toNum(n.querySelector("#u-l").value)));
+    const e = appData.supplies.findIndex((e) => e.id === t.id);
+    (e >= 0 ? (appData.supplies[e] = t) : appData.supplies.push(t), saveData(), closeForm(), redrawPage(), toast("Supply saved."));
   });
   const a = n.querySelector("#u-del");
   a &&
     a.addEventListener("click", () => {
-      ((d.supplies = d.supplies.filter((e) => e.id !== t.id)), s(), Rt(), redrawPage());
+      ((appData.supplies = appData.supplies.filter((e) => e.id !== t.id)), saveData(), closeForm(), redrawPage());
     });
 }
-function Ln() {
-  const e = Bt('<div class="stack"></div>');
+function historyView() {
+  const e = htmlEl('<div class="stack"></div>');
   e.appendChild(
-    Bt(
-      `<div class="head"><div><h1>History</h1>\n    <p>${d.logs.filter((e) => "taken" === e.status).length} shots logged.</p></div>\n    <button class="btn" data-go="log">Log a shot</button></div>`,
+    htmlEl(
+      `<div class="head"><div><h1>History</h1>\n    <p>${appData.logs.filter((e) => "taken" === e.status).length} shots logged.</p></div>\n    <button class="btn" data-go="log">Log a shot</button></div>`,
     ),
   );
-  const t = Bt(
-    `<div class="seg" id="hv">\n    <button data-v="calendar" aria-pressed="${"calendar" === r.histView}">Calendar</button>\n    <button data-v="list" aria-pressed="${"list" === r.histView}">List</button>\n    <button data-v="batches" aria-pressed="${"batches" === r.histView}">Finished batches</button></div>`,
+  const t = htmlEl(
+    `<div class="seg" id="hv">\n    <button data-v="calendar" aria-pressed="${"calendar" === ui.histView}">Calendar</button>\n    <button data-v="list" aria-pressed="${"list" === ui.histView}">List</button>\n    <button data-v="batches" aria-pressed="${"batches" === ui.histView}">Finished batches</button></div>`,
   );
   return (
     t.querySelectorAll("button").forEach((e) =>
       e.addEventListener("click", () => {
-        ((r.histView = e.dataset.v), redrawPage());
+        ((ui.histView = e.dataset.v), redrawPage());
       }),
     ),
     e.appendChild(t),
-    "calendar" === r.histView
-      ? e.appendChild(qn())
-      : "list" === r.histView
-        ? (e.appendChild(histListBar()), e.appendChild(Dn()))
-        : e.appendChild(En()),
+    "calendar" === ui.histView
+      ? e.appendChild(calendarView())
+      : "list" === ui.histView
+        ? (e.appendChild(histListBar()), e.appendChild(historyList()))
+        : e.appendChild(finishedTable()),
     e
   );
 }
-function qn() {
-  const e = r.calMonth
-      ? ee(r.calMonth + "-01")
+function calendarView() {
+  const e = ui.calMonth
+      ? parseDate(ui.calMonth + "-01")
       : (() => {
           const e = new Date();
           return new Date(e.getFullYear(), e.getMonth(), 1);
         })(),
     t = e.getFullYear(),
     n = e.getMonth();
-  ((r.calMonth = `${t}-${X(n + 1)}`), r.calDay || (r.calDay = te()));
+  ((ui.calMonth = `${t}-${pad2(n + 1)}`), ui.calDay || (ui.calDay = todayIso()));
   const a = (new Date(t, n, 1).getDay() + 6) % 7,
     s = new Date(t, n, 1 - a),
-    o = Bt('<div class="split"></div>'),
-    i = Bt(
+    o = htmlEl('<div class="split"></div>'),
+    i = htmlEl(
       `<div class="panel" style="overflow:hidden">\n    <h2><button class="btn ghost sm" id="pm">‹</button>\n      <b style="font-weight:600;color:var(--ink)">${e.toLocaleDateString(void 0, { month: "long", year: "numeric" })}</b>\n      <button class="btn ghost sm" id="nm">›</button></h2>\n    <div class="cal" id="cal"></div>\n    <div class="legend">\n      <span><i class="cdot" data-s="taken"></i>Taken</span>\n      <span><i class="cdot"></i>Scheduled</span>\n      <span><i class="cdot" data-s="missed"></i>Missed</span></div></div>`,
     );
   (i.querySelector("#pm").addEventListener("click", () => {
-    ((r.calMonth = _(new Date(t, n - 1, 1)).slice(0, 7)), redrawPage());
+    ((ui.calMonth = isoDate(new Date(t, n - 1, 1)).slice(0, 7)), redrawPage());
   }),
     i.querySelector("#nm").addEventListener("click", () => {
-      ((r.calMonth = _(new Date(t, n + 1, 1)).slice(0, 7)), redrawPage());
+      ((ui.calMonth = isoDate(new Date(t, n + 1, 1)).slice(0, 7)), redrawPage());
     }));
   const l = i.querySelector("#cal");
-  ge.forEach((e) => l.appendChild(Bt(`<div class="cal-h">${me[e][0]}</div>`)));
+  WEEK_ORDER.forEach((e) => l.appendChild(htmlEl(`<div class="cal-h">${WEEKDAYS[e][0]}</div>`)));
   for (let e = 0; e < 42; e++) {
     const t = new Date(s);
     t.setDate(s.getDate() + e);
-    const a = _(t),
+    const a = isoDate(t),
       o = t.getMonth() !== n,
-      i0 = it(a),
+      i0 = dueOn(a),
       i =
         i0
           .flatMap((e) =>
-            SL(e, a).map((x) => {
-              const t = lt(e.id, a, x),
-                n = Ce(e.compoundId);
+            doseSlots(e, a).map((x) => {
+              const t = slotStatus(e.id, a, x),
+                n = compoundById(e.compoundId);
               return `<span class="cdot" data-s="${t}" style="${"taken" === t ? `background:${n.color};border-color:${n.color}` : "missed" === t ? "background:var(--alert)" : `border-color:${n.color}`}"></span>`;
             }),
           )
           .join("") +
-        ot(a)
+        logsOn(a)
           .filter((e) => "taken" === e.status && !(e.protocolId && i0.some((t) => t.id === e.protocolId)))
           .map((e) => {
-            const n = Ce(e.compoundId) || { color: "var(--ink-3)" };
+            const n = compoundById(e.compoundId) || { color: "var(--ink-3)" };
             return `<span class="cdot" data-s="taken" style="background:${n.color};border-color:${n.color}"></span>`;
           })
           .join("");
     l.appendChild(
-      Bt(
-        `<button class="cal-d" data-out="${o ? 1 : 0}" data-today="${a === te() ? 1 : 0}"\n      data-sel="${a === r.calDay ? 1 : 0}" data-calday="${a}">\n      <span class="cal-n">${t.getDate()}</span><span class="cal-dots">${i}</span></button>`,
+      htmlEl(
+        `<button class="cal-d" data-out="${o ? 1 : 0}" data-today="${a === todayIso() ? 1 : 0}"\n      data-sel="${a === ui.calDay ? 1 : 0}" data-calday="${a}">\n      <span class="cal-n">${t.getDate()}</span><span class="cal-dots">${i}</span></button>`,
       ),
     );
   }
   o.appendChild(i);
-  const d = Bt(`<div class="panel"><h2>${Ht(oe(r.calDay))}</h2><div id="dd"></div></div>`),
+  const d = htmlEl(`<div class="panel"><h2>${esc(shortDateYear(ui.calDay))}</h2><div id="dd"></div></div>`),
     c = d.querySelector("#dd"),
-    u = it(r.calDay),
-    p = ot(r.calDay).filter((e) => !e.protocolId || !u.some((t) => t.id === e.protocolId));
+    u = dueOn(ui.calDay),
+    p = logsOn(ui.calDay).filter((e) => !e.protocolId || !u.some((t) => t.id === e.protocolId));
   u.length ||
     p.length ||
-    c.appendChild(Bt('<div class="empty tiny">Nothing logged or scheduled on this day.</div>'));
+    c.appendChild(htmlEl('<div class="empty tiny">Nothing logged or scheduled on this day.</div>'));
   for (const e of u)
-    for (const x of SL(e, r.calDay)) {
-      const t = Ce(e.compoundId),
-        n = st(e.id, r.calDay, x),
-        a = Ue(e, r.calDay),
+    for (const x of doseSlots(e, ui.calDay)) {
+      const t = compoundById(e.compoundId),
+        n = logFor(e.id, ui.calDay, x),
+        a = doseMath(e, ui.calDay),
         s = a.phase,
-        o = `${Ht(fe(be(a.dose), 3))} ${Ht("iu" === a.unit ? "IU" : a.unit)}${a.units ? ` · ${fe(a.units, a.units % 1 ? 1 : 0)}u` : ""} scheduled${s && s.of ? ` · phase ${s.phase}/${s.of}${s.holding ? ", held" : ""}` : ""}`;
+        o = `${esc(fmt(toNum(a.dose), 3))} ${esc("iu" === a.unit ? "IU" : a.unit)}${a.units ? ` · ${fmt(a.units, a.units % 1 ? 1 : 0)}u` : ""} scheduled${s && s.of ? ` · phase ${s.phase}/${s.of}${s.holding ? ", held" : ""}` : ""}`;
       c.appendChild(
-        Bt(
-          `<div style="padding:11px 16px;border-bottom:1px solid var(--rule-soft)">\n      <div class="spread"><div><b>${Ht(t.name)}${x ? " · " + SLN(x) : ""}</b>\n        <div class="tiny muted">${n && "taken" === n.status ? `${Ht($e(be(n.doseMg), t))} · ${fe(be(n.units), 1)}u${n.site ? " · " + Ht(Z(n)) : ""}` : o}</div></div>\n        <span class="pill ${n ? ("taken" === n.status ? "done" : "late") : r.calDay < te() ? "late" : "due"}">${n ? n.status : r.calDay < te() ? "missed" : "scheduled"}</span></div>\n      <div class="row" style="margin-top:8px">\n        <button class="btn sm ${n && "taken" === n.status ? "" : "ghost"}" data-mark="taken" data-p="${e.id}" data-d="${r.calDay}"${x ? ` data-slot="${x}"` : ""}>Taken</button>\n        <button class="btn sm ${n && "missed" === n.status ? "" : "ghost"}" data-mark="missed" data-p="${e.id}" data-d="${r.calDay}"${x ? ` data-slot="${x}"` : ""}>Missed</button>\n        ${n ? `<button class="btn ghost sm" data-clear="${n.id}">Clear</button>` : ""}</div></div>`,
+        htmlEl(
+          `<div style="padding:11px 16px;border-bottom:1px solid var(--rule-soft)">\n      <div class="spread"><div><b>${esc(t.name)}${x ? " · " + slotLabel(x) : ""}</b>\n        <div class="tiny muted">${n && "taken" === n.status ? `${esc(fmtAmount(toNum(n.doseMg), t))} · ${fmt(toNum(n.units), 1)}u${n.site ? " · " + esc(siteLabel(n)) : ""}` : o}</div></div>\n        <span class="pill ${n ? ("taken" === n.status ? "done" : "late") : ui.calDay < todayIso() ? "late" : "due"}">${n ? n.status : ui.calDay < todayIso() ? "missed" : "scheduled"}</span></div>\n      <div class="row" style="margin-top:8px">\n        <button class="btn sm ${n && "taken" === n.status ? "" : "ghost"}" data-mark="taken" data-p="${e.id}" data-d="${ui.calDay}"${x ? ` data-slot="${x}"` : ""}>Taken</button>\n        <button class="btn sm ${n && "missed" === n.status ? "" : "ghost"}" data-mark="missed" data-p="${e.id}" data-d="${ui.calDay}"${x ? ` data-slot="${x}"` : ""}>Missed</button>\n        ${n ? `<button class="btn ghost sm" data-clear="${n.id}">Clear</button>` : ""}</div></div>`,
         ),
       );
     }
   for (const e of p) {
-    const t = Ce(e.compoundId);
+    const t = compoundById(e.compoundId);
     c.appendChild(
-      Bt(
-        `<div style="padding:11px 16px;border-bottom:1px solid var(--rule-soft)">\n      <div class="spread"><div><b>${Ht(t ? t.name : "—")}</b>\n        <div class="tiny muted">${Ht($e(be(e.doseMg), t))}${e.site ? " · " + Ht(Z(e)) : ""} · ${e.protocolId && Le(e.protocolId) ? "protocol paused" : "one-off"}</div></div>\n      ${e.protocolId && Le(e.protocolId) ? "" : `<button class="btn ghost sm" data-clear="${e.id}">Clear</button>`}</div></div>`,
+      htmlEl(
+        `<div style="padding:11px 16px;border-bottom:1px solid var(--rule-soft)">\n      <div class="spread"><div><b>${esc(t ? t.name : "—")}</b>\n        <div class="tiny muted">${esc(fmtAmount(toNum(e.doseMg), t))}${e.site ? " · " + esc(siteLabel(e)) : ""} · ${e.protocolId && protocolById(e.protocolId) ? "protocol paused" : "one-off"}</div></div>\n      ${e.protocolId && protocolById(e.protocolId) ? "" : `<button class="btn ghost sm" data-clear="${e.id}">Clear</button>`}</div></div>`,
       ),
     );
   }
   return (o.appendChild(d), o);
 }
-function Dn() {
-  const e = d.logs
-      .filter((t) => !r.histComp || t.compoundId === r.histComp)
+function historyList() {
+  const e = appData.logs
+      .filter((t) => !ui.histComp || t.compoundId === ui.histComp)
       .slice()
       .sort((e, t) => ((e.at || e.date) < (t.at || t.date) ? 1 : -1)),
-    t = Bt(
+    t = htmlEl(
       '<div class="panel" style="overflow:auto"><table><thead><tr>\n    <th>When</th><th>Compound</th><th class="num">Dose</th><th class="num">Units</th><th class="num">Purged</th>\n    <th>Site</th><th>Vial</th><th>Status</th><th>Notes</th><th></th></tr></thead><tbody id="tb"></tbody></table></div>',
     ),
     n = t.querySelector("#tb");
   e.length ||
-    n.appendChild(Bt('<tr><td colspan="10"><div class="empty">Nothing logged yet.</div></td></tr>'));
+    n.appendChild(htmlEl('<tr><td colspan="10"><div class="empty">Nothing logged yet.</div></td></tr>'));
   for (const t of e) {
-    const e = Ce(t.compoundId),
-      a = qe(t.batchId),
-      s = t.at ? new Date(t.at) : ee(t.date);
+    const e = compoundById(t.compoundId),
+      a = batchById(t.batchId),
+      s = t.at ? new Date(t.at) : parseDate(t.date);
     n.appendChild(
-      Bt(
-        `<tr>\n      <td>${Ht(se(t.date))}<div class="tiny muted">${t.at ? Ht(re(s)) : ""}${t.slot ? " · " + SLN(t.slot) + " dose" : ""}</div></td>\n      <td>${e ? `<button class="hcomp" data-hcomp="${Ht(t.compoundId)}">${Ht(e.name)}</button>` : "—"}</td>\n      <td class="num">${Ht($e(be(t.doseMg), e))}</td>\n      <td class="num">${t.units ? fe(be(t.units), 1) : "—"}</td>\n      <td class="num">${be(t.purgeUnits) ? fe(be(t.purgeUnits), 1) + "u" : "—"}</td>\n      <td>${Ht(t.site ? Z(t) : "—")}</td>\n      <td class="tiny">${t.bacMl ? Ht(`${fe(be(t.vialMg), 2)} ${xe(e)} in ${fe(be(t.bacMl), 2)} mL` + (a && a.lot ? " · " + a.lot : "")) : a ? Ht(`${a.vialMg} ${xe(e)}` + (a.lot ? " · " + a.lot : "")) : "—"}</td>\n      <td><span class="pill ${"taken" === t.status ? "done" : "late"}">${Ht(t.status)}</span></td>\n      <td class="tiny">${Ht(t.notes || "")}</td>\n      <td class="num"><button class="btn ghost sm" data-clear="${t.id}">Delete</button></td></tr>`,
+      htmlEl(
+        `<tr>\n      <td>${esc(shortDate(t.date))}<div class="tiny muted">${t.at ? esc(clockTime(s)) : ""}${t.slot ? " · " + slotLabel(t.slot) + " dose" : ""}</div></td>\n      <td>${e ? `<button class="hcomp" data-hcomp="${esc(t.compoundId)}">${esc(e.name)}</button>` : "—"}</td>\n      <td class="num">${esc(fmtAmount(toNum(t.doseMg), e))}</td>\n      <td class="num">${t.units ? fmt(toNum(t.units), 1) : "—"}</td>\n      <td class="num">${toNum(t.purgeUnits) ? fmt(toNum(t.purgeUnits), 1) + "u" : "—"}</td>\n      <td>${esc(t.site ? siteLabel(t) : "—")}</td>\n      <td class="tiny">${t.bacMl ? esc(`${fmt(toNum(t.vialMg), 2)} ${massUnit(e)} in ${fmt(toNum(t.bacMl), 2)} mL` + (a && a.lot ? " · " + a.lot : "")) : a ? esc(`${a.vialMg} ${massUnit(e)}` + (a.lot ? " · " + a.lot : "")) : "—"}</td>\n      <td><span class="pill ${"taken" === t.status ? "done" : "late"}">${esc(t.status)}</span></td>\n      <td class="tiny">${esc(t.notes || "")}</td>\n      <td class="num"><button class="btn ghost sm" data-clear="${t.id}">Delete</button></td></tr>`,
       ),
     );
   }
   return t;
 }
-function En() {
-  const e = d.batches.filter((e) => "finished" === e.status),
-    t = Bt(
+function finishedTable() {
+  const e = appData.batches.filter((e) => "finished" === e.status),
+    t = htmlEl(
       '<div class="panel" style="overflow:auto"><table><thead><tr>\n    <th>Compound</th><th class="num">Vial</th><th class="num">Vials</th><th>Source / lot</th><th>Mixed</th><th class="num">Shots from it</th></tr></thead>\n    <tbody id="tb"></tbody></table></div>',
     ),
     n = t.querySelector("#tb");
   e.length ||
     n.appendChild(
-      Bt(
+      htmlEl(
         '<tr><td colspan="6"><div class="empty">No batches finished yet. They move here when the last vial runs out.</div></td></tr>',
       ),
     );
   for (const t of e) {
-    const e = Ce(t.compoundId),
-      a = d.logs.filter((e) => e.batchId === t.id).length;
+    const e = compoundById(t.compoundId),
+      a = appData.logs.filter((e) => e.batchId === t.id).length;
     n.appendChild(
-      Bt(
-        `<tr><td>${Ht(e ? e.name : "—")}</td><td class="num">${Ht(t.vialMg)} ${Ht(xe(e))}</td>\n      <td class="num">${Ht(t.startVials || "—")}</td><td>${Ht(t.vendor || "—")}${t.lot ? '<div class="tiny muted">lot ' + Ht(t.lot) + "</div>" : ""}</td>\n      <td>${t.reconDate ? Ht(se(t.reconDate)) : "—"}</td><td class="num">${a}</td></tr>`,
+      htmlEl(
+        `<tr><td>${esc(e ? e.name : "—")}</td><td class="num">${esc(t.vialMg)} ${esc(massUnit(e))}</td>\n      <td class="num">${esc(t.startVials || "—")}</td><td>${esc(t.vendor || "—")}${t.lot ? '<div class="tiny muted">lot ' + esc(t.lot) + "</div>" : ""}</td>\n      <td>${t.reconDate ? esc(shortDate(t.reconDate)) : "—"}</td><td class="num">${a}</td></tr>`,
       ),
     );
   }
   return t;
 }
-const Tn = [
+const LABEL_STOCKS = [
   ["White / black", "#FFFFFF", "#111111"],
   ["Matt silver / black", "#C8CBCD", "#111111"],
   ["Black / gold", "#141414", "#C8A44D"],
   ["Black / white", "#141414", "#FFFFFF"],
 ];
-function Pn(e) {
+function labelFields(e) {
   const r0 = PnBase(e);
   // Community build: no CoA link or lot on labels, so members can't make labels pointing at Korah's COA pages.
   if (COMMUNITY) return ((r0.coa = ""), (r0.lot = ""), r0);
@@ -3239,15 +3239,15 @@ function Pn(e) {
   return r0;
 }
 function PnBase(e) {
-  const t = Ce(e.compoundId) || { name: "" },
-    n = d.settings.labelDefaults || {},
-    a = be(e.bacMl) ? be(e.vialMg) / be(e.bacMl) : 0,
-    s = d.protocols.find((t) => t.compoundId === e.compoundId && t.active);
+  const t = compoundById(e.compoundId) || { name: "" },
+    n = appData.settings.labelDefaults || {},
+    a = toNum(e.bacMl) ? toNum(e.vialMg) / toNum(e.bacMl) : 0,
+    s = appData.protocols.find((t) => t.compoundId === e.compoundId && t.active);
   let o = "";
   if (s && a) {
-    const e = Ge(s, te()),
-      t = (Se(e.dose, e.unit) / a) * Oe;
-    o = `${fe(t, t < 10 ? 1 : 0)}u = ${fe(be(e.dose), 3)}${"iu" === e.unit ? "IU" : e.unit}`;
+    const e = doseOn(s, todayIso()),
+      t = (toMg(e.dose, e.unit) / a) * UNITS_PER_ML;
+    o = `${fmt(t, t < 10 ? 1 : 0)}u = ${fmt(toNum(e.dose), 3)}${"iu" === e.unit ? "IU" : e.unit}`;
   }
   return Object.assign(
     {
@@ -3255,14 +3255,14 @@ function PnBase(e) {
       name: t.name,
       under: a ? n.under || "Injection" : "Lyophilised powder",
       strength: a
-        ? `${fe(be(e.vialMg), 0)}${Me(t) ? "IU" : "MG"}/${fe(be(e.bacMl), be(e.bacMl) % 1 ? 1 : 0)}ML`
-        : `${fe(be(e.vialMg), 0)}${Me(t) ? "IU" : "MG"}`,
+        ? `${fmt(toNum(e.vialMg), 0)}${isIU(t) ? "IU" : "MG"}/${fmt(toNum(e.bacMl), toNum(e.bacMl) % 1 ? 1 : 0)}ML`
+        : `${fmt(toNum(e.vialMg), 0)}${isIU(t) ? "IU" : "MG"}`,
       note: a ? "Multi dose vial" : "Reconstitute before use",
       between: n.between || "For subcutaneous use",
       bottom: o,
       small: n.small || "",
       made: e.vendor ? `MFG: ${e.vendor}` : n.made || "",
-      useby: e.expiry ? oe(e.expiry) : "",
+      useby: e.expiry ? shortDateYear(e.expiry) : "",
       lot: e.lot ? `LOT: ${e.lot}` : "",
       coa: e.coa || "",
     },
@@ -3288,7 +3288,7 @@ const LB_MAIN = {
     lot: { t: "Lot", px: 13 },
   };
 function LLget() {
-  const L = (!COMMUNITY && d.settings.labelLayout) || {},
+  const L = (!COMMUNITY && appData.settings.labelLayout) || {},
     keys = Object.keys(LB_MAIN),
     order = (Array.isArray(L.order) ? L.order : []).filter((k, i, a) => keys.includes(k) && a.indexOf(k) === i);
   keys.forEach((k) => order.includes(k) || order.push(k));
@@ -3310,7 +3310,7 @@ function LLget() {
     qr: { size: ["s", "m", "l"].includes(q.size) ? q.size : "m", pos: ["top", "middle", "bottom"].includes(q.pos) ? q.pos : "bottom", h: !!q.h },
   };
 }
-function On(e, t, n, a) {
+function drawLabel(e, t, n, a) {
   const L = LLget();
   ((e.width = 472), (e.height = 236));
   const s = e.getContext("2d");
@@ -3430,7 +3430,7 @@ function On(e, t, n, a) {
 // Layout panel on the Labels tab (personal build only). Changes save straight away and apply to every label.
 const LyPanel = COMMUNITY ? null : function (box, redraw) {
   if (!box) return;
-  const save = (L) => ((d.settings.labelLayout = L), s(), redraw(), draw()),
+  const save = (L) => ((appData.settings.labelLayout = L), saveData(), redraw(), draw()),
     pct = (v) => `<span class="mono lypct">${v}%</span>`,
     sz = (k, v) =>
       `<button type="button" class="lyb" data-a="dn" data-k="${k}" aria-label="Smaller"${v <= 50 ? " disabled" : ""}>−</button>${pct(v)}<button type="button" class="lyb" data-a="up" data-k="${k}" aria-label="Bigger"${v >= 160 ? " disabled" : ""}>+</button>`,
@@ -3445,14 +3445,14 @@ const LyPanel = COMMUNITY ? null : function (box, redraw) {
       L.order
         .map((k, i) => {
           const v = L.m[k];
-          return `<div class="lyrow${v.h ? " lyoff" : ""}"><span class="lyname">${Ht(LB_MAIN[k].t)}</span><div class="lyctl">${sz(k, v.sc)}<button type="button" class="lyb lybold" data-a="bold" data-k="${k}" aria-pressed="${v.b}" aria-label="Bold">B</button><button type="button" class="lyb lytwo" data-a="two" data-k="${k}" aria-pressed="${v.two}" title="Split the words over two lines">2 lines</button>${show(k, v.h)}<button type="button" class="lyb" data-a="mu" data-k="${k}" aria-label="Move up"${i ? "" : " disabled"}>↑</button><button type="button" class="lyb" data-a="md" data-k="${k}" aria-label="Move down"${i < n - 1 ? "" : " disabled"}>↓</button></div></div>`;
+          return `<div class="lyrow${v.h ? " lyoff" : ""}"><span class="lyname">${esc(LB_MAIN[k].t)}</span><div class="lyctl">${sz(k, v.sc)}<button type="button" class="lyb lybold" data-a="bold" data-k="${k}" aria-pressed="${v.b}" aria-label="Bold">B</button><button type="button" class="lyb lytwo" data-a="two" data-k="${k}" aria-pressed="${v.two}" title="Split the words over two lines">2 lines</button>${show(k, v.h)}<button type="button" class="lyb" data-a="mu" data-k="${k}" aria-label="Move up"${i ? "" : " disabled"}>↑</button><button type="button" class="lyb" data-a="md" data-k="${k}" aria-label="Move down"${i < n - 1 ? "" : " disabled"}>↓</button></div></div>`;
         })
         .join("") +
       '<div class="lysec">Ribbon and sideways lines</div>' +
       Object.keys(LB_SIDE)
         .map((k) => {
           const v = L.sd[k];
-          return `<div class="lyrow${v.h ? " lyoff" : ""}"><span class="lyname">${Ht(LB_SIDE[k].t)}</span><div class="lyctl">${sz("s:" + k, v.sc)}${show("s:" + k, v.h)}</div></div>`;
+          return `<div class="lyrow${v.h ? " lyoff" : ""}"><span class="lyname">${esc(LB_SIDE[k].t)}</span><div class="lyctl">${sz("s:" + k, v.sc)}${show("s:" + k, v.h)}</div></div>`;
         })
         .join("") +
       '<div class="lysec">QR code</div>' +
@@ -3469,7 +3469,7 @@ const LyPanel = COMMUNITY ? null : function (box, redraw) {
       side = k0.startsWith("s:"),
       k = side ? k0.slice(2) : k0,
       it = "qr" === k ? L.qr : side ? L.sd[k] : L.m[k];
-    if ("reset" === a) return ((d.settings.labelLayout = null), s(), redraw(), draw(), toast("Layout reset."));
+    if ("reset" === a) return ((appData.settings.labelLayout = null), saveData(), redraw(), draw(), toast("Layout reset."));
     if ("up" === a || "dn" === a) it.sc = Math.max(50, Math.min(160, it.sc + ("up" === a ? 10 : -10)));
     else if ("bold" === a) it.b = !it.b;
     else if ("two" === a) it.two = !it.two;
@@ -3485,19 +3485,19 @@ const LyPanel = COMMUNITY ? null : function (box, redraw) {
   });
   draw();
 };
-function Bn() {
-  const e = Bt('<div class="stack"></div>'),
-    t = d.batches.filter((e) => "finished" !== e.status);
+function labelsView() {
+  const e = htmlEl('<div class="stack"></div>'),
+    t = appData.batches.filter((e) => "finished" !== e.status);
   if (
-    ((r.labelId && t.some((e) => e.id === r.labelId)) || (r.labelId = (t[0] || {}).id || null),
+    ((ui.labelId && t.some((e) => e.id === ui.labelId)) || (ui.labelId = (t[0] || {}).id || null),
     e.appendChild(
-      Bt(
+      htmlEl(
         `<div class="head"><div><h1>Vial labels</h1>\n    <p>Print one, or paste it into your label printer's editor. Nothing here changes the vial — it only affects the label.</p></div>\n    ${
           t.length
-            ? `<select id="lb-pick" style="width:auto;min-width:220px">${ft(t)
+            ? `<select id="lb-pick" style="width:auto;min-width:220px">${sortBatches(t)
                 .map((e) => {
-                  const t = Ce(e.compoundId);
-                  return `<option value="${e.id}"${r.labelId === e.id ? " selected" : ""}>${Ht(t ? t.name : "?")} · ${Ht(e.vialMg)} mg${e.lot ? " · " + Ht(e.lot) : ""}</option>`;
+                  const t = compoundById(e.compoundId);
+                  return `<option value="${e.id}"${ui.labelId === e.id ? " selected" : ""}>${esc(t ? t.name : "?")} · ${esc(e.vialMg)} mg${e.lot ? " · " + esc(e.lot) : ""}</option>`;
                 })
                 .join("")}</select>`
             : ""
@@ -3508,23 +3508,23 @@ function Bn() {
   )
     return (
       e.appendChild(
-        Bt('<div class="panel"><div class="empty"><b>No vials to label</b>Add stock first.</div></div>'),
+        htmlEl('<div class="panel"><div class="empty"><b>No vials to label</b>Add stock first.</div></div>'),
       ),
       e
     );
   e.querySelector("#lb-pick").addEventListener("change", (e) => {
-    ((r.labelId = e.target.value), redrawPage());
+    ((ui.labelId = e.target.value), redrawPage());
   });
-  const n = qe(r.labelId),
-    base = Pn(n),
+  const n = batchById(ui.labelId),
+    base = labelFields(n),
     // Typed-but-unsaved wording is kept in screen state, so a background sync redraw doesn't throw it away.
-    a = Object.assign({}, base, ((r.lbDraft || (r.lbDraft = {}))[n.id]) || {});
-  let o = be(n.labelStock) || 0;
-  const i = Bt('<div class="split"></div>'),
-    l = Bt(
-      `<div class="stack">\n    <div class="panel${COMMUNITY ? "" : " lbsticky"}"><div class="pbody">\n      <div class="labelcard" id="lcard">\n        <img id="limg" alt="Vial label preview" style="width:100%;max-width:472px;height:auto;border-radius:3px">\n      </div>\n      <p class="tiny muted" style="margin:12px 0 0">${be(n.bacMl) ? "This batch is mixed, so the label carries its concentration and units per dose." : "This batch is still powder, so the label says so instead of a concentration."}</p>\n    </div></div>${COMMUNITY ? "" : `<div class="panel"><h2>Layout<button type="button" class="btn ${r.lyOpen ? "" : "ghost "}sm" id="lb-laytog">${r.lyOpen ? "Done" : "Edit layout"}</button></h2><div class="pbody" id="lb-lay"${r.lyOpen ? "" : " hidden"}></div></div>`}\n    <div class="panel"><h2>Label stock</h2><div class="pbody">\n      <div class="chips" id="lb-stock">${Tn.map((e, t) => `<button class="chip" data-si="${t}" aria-pressed="${o === t ? "true" : "false"}">\n        <span class="chipdot" style="background:${e[1]}"></span><span class="chipdot" style="background:${e[2]}"></span>${Ht(e[0])}</button>`).join("")}</div>\n      <p class="tiny muted" style="margin:12px 0 0">Preview only. The file you download is always black on white — a thermal printer decides per dot whether to lay ribbon down and cannot know what colour is on the spool, so gold on black and black on silver print from the same image.</p>\n      <p class="tiny muted" style="margin:8px 0 0">40 × 20 mm at 300 dpi — 472×236 pixels. Black and white only.</p>\n      <div class="row" style="margin-top:14px">\n        <button class="btn" id="lb-share" hidden>Save to Photos</button>\n        <button class="btn" id="lb-png">Download PNG</button>\n        <button class="btn ghost" id="lb-print">Print</button></div>\n      <p class="tiny muted" style="margin:8px 0 0" id="lb-hint">You can also press and hold the label to save it.</p>\n    </div></div></div>`,
+    a = Object.assign({}, base, ((ui.lbDraft || (ui.lbDraft = {}))[n.id]) || {});
+  let o = toNum(n.labelStock) || 0;
+  const i = htmlEl('<div class="split"></div>'),
+    l = htmlEl(
+      `<div class="stack">\n    <div class="panel${COMMUNITY ? "" : " lbsticky"}"><div class="pbody">\n      <div class="labelcard" id="lcard">\n        <img id="limg" alt="Vial label preview" style="width:100%;max-width:472px;height:auto;border-radius:3px">\n      </div>\n      <p class="tiny muted" style="margin:12px 0 0">${toNum(n.bacMl) ? "This batch is mixed, so the label carries its concentration and units per dose." : "This batch is still powder, so the label says so instead of a concentration."}</p>\n    </div></div>${COMMUNITY ? "" : `<div class="panel"><h2>Layout<button type="button" class="btn ${ui.lyOpen ? "" : "ghost "}sm" id="lb-laytog">${ui.lyOpen ? "Done" : "Edit layout"}</button></h2><div class="pbody" id="lb-lay"${ui.lyOpen ? "" : " hidden"}></div></div>`}\n    <div class="panel"><h2>Label stock</h2><div class="pbody">\n      <div class="chips" id="lb-stock">${LABEL_STOCKS.map((e, t) => `<button class="chip" data-si="${t}" aria-pressed="${o === t ? "true" : "false"}">\n        <span class="chipdot" style="background:${e[1]}"></span><span class="chipdot" style="background:${e[2]}"></span>${esc(e[0])}</button>`).join("")}</div>\n      <p class="tiny muted" style="margin:12px 0 0">Preview only. The file you download is always black on white — a thermal printer decides per dot whether to lay ribbon down and cannot know what colour is on the spool, so gold on black and black on silver print from the same image.</p>\n      <p class="tiny muted" style="margin:8px 0 0">40 × 20 mm at 300 dpi — 472×236 pixels. Black and white only.</p>\n      <div class="row" style="margin-top:14px">\n        <button class="btn" id="lb-share" hidden>Save to Photos</button>\n        <button class="btn" id="lb-png">Download PNG</button>\n        <button class="btn ghost" id="lb-print">Print</button></div>\n      <p class="tiny muted" style="margin:8px 0 0" id="lb-hint">You can also press and hold the label to save it.</p>\n    </div></div></div>`,
     ),
-    c = Bt('<div class="panel"><h2>What is printed</h2><div class="pbody" id="lf2"></div></div>');
+    c = htmlEl('<div class="panel"><h2>What is printed</h2><div class="pbody" id="lf2"></div></div>');
   (i.appendChild(l), i.appendChild(c), e.appendChild(i));
   const u = [
     ["ribbon", "Left ribbon"],
@@ -3542,12 +3542,12 @@ function Bn() {
   ].filter(([e]) => !COMMUNITY || (e !== "lot" && e !== "coa"));
   c.querySelector("#lf2").innerHTML =
     '<p class="tiny muted" style="margin:0 0 12px">Change any of these and the label redraws.</p>' +
-    (COMMUNITY ? "" : `<div class="qrbox"><div class="qrhead">QR address for Niimbot</div><div class="cprow"><input id="lf-coa" value="${Ht(a.coa || "")}"><button class="btn sm cpb" type="button" data-cp="coa">Copy address</button></div><p class="tiny muted" style="margin:8px 0 0">Filled in from the lot number when it looks like KP-0001, otherwise type it. In Niimbot, add a QR code element and paste this. Size about 10 × 10 mm with 1 mm clear around it. The picture label draws this same address as its QR code.</p></div>`) +
+    (COMMUNITY ? "" : `<div class="qrbox"><div class="qrhead">QR address for Niimbot</div><div class="cprow"><input id="lf-coa" value="${esc(a.coa || "")}"><button class="btn sm cpb" type="button" data-cp="coa">Copy address</button></div><p class="tiny muted" style="margin:8px 0 0">Filled in from the lot number when it looks like KP-0001, otherwise type it. In Niimbot, add a QR code element and paste this. Size about 10 × 10 mm with 1 mm clear around it. The picture label draws this same address as its QR code.</p></div>`) +
     u
       .filter(([e]) => "coa" !== e)
       .map(
         ([e, t]) =>
-          `<div class="field"><label for="lf-${e}">${t}</label><div class="cprow"><input id="lf-${e}" value="${Ht(a[e] || "")}"><button class="btn sm cpb" type="button" data-cp="${e}">Copy</button></div></div>`,
+          `<div class="field"><label for="lf-${e}">${t}</label><div class="cprow"><input id="lf-${e}" value="${esc(a[e] || "")}"><button class="btn sm cpb" type="button" data-cp="${e}">Copy</button></div></div>`,
       )
       .join("") +
     '<div class="row"><button class="btn sm" id="lb-savebatch">Save to this vial</button>\n      <button class="btn ghost sm" id="lb-savedef">Save wording as default</button>\n      <button class="btn ghost sm" id="lb-reset">Reset</button></div>';
@@ -3561,9 +3561,9 @@ function Bn() {
       (u.forEach(([e]) => {
         a[e] !== base[e] && (dr[e] = a[e]);
       }),
-        Object.keys(dr).length ? (r.lbDraft[n.id] = dr) : delete r.lbDraft[n.id]);
-      const e = Tn[o];
-      On(p, a, e[1], e[2]);
+        Object.keys(dr).length ? (ui.lbDraft[n.id] = dr) : delete ui.lbDraft[n.id]);
+      const e = LABEL_STOCKS[o];
+      drawLabel(p, a, e[1], e[2]);
       try {
         h.src = p.toDataURL("image/png");
       } catch (e) {}
@@ -3586,7 +3586,7 @@ function Bn() {
       e.addEventListener("click", () => {
         ((o = +e.dataset.si),
           (n.labelStock = o),
-          s(),
+          saveData(),
           l
             .querySelectorAll("#lb-stock button")
             .forEach((t) => t.setAttribute("aria-pressed", t === e ? "true" : "false")),
@@ -3596,14 +3596,14 @@ function Bn() {
   COMMUNITY || LyPanel(l.querySelector("#lb-lay"), m);
   COMMUNITY ||
     l.querySelector("#lb-laytog").addEventListener("click", (e) => {
-      r.lyOpen = !r.lyOpen;
-      l.querySelector("#lb-lay").hidden = !r.lyOpen;
-      e.target.textContent = r.lyOpen ? "Done" : "Edit layout";
-      e.target.classList.toggle("ghost", !r.lyOpen);
+      ui.lyOpen = !ui.lyOpen;
+      l.querySelector("#lb-lay").hidden = !ui.lyOpen;
+      e.target.textContent = ui.lyOpen ? "Done" : "Edit layout";
+      e.target.classList.toggle("ghost", !ui.lyOpen);
     });
   const g = () => {
       const e = document.createElement("canvas");
-      On(e, a, "#FFFFFF", "#000000");
+      drawLabel(e, a, "#FFFFFF", "#000000");
       const t = e.toDataURL("image/png"),
         n = atob(t.split(",")[1]),
         s = new Uint8Array(n.length);
@@ -3611,11 +3611,11 @@ function Bn() {
       return new Blob([s], { type: "image/png" });
     },
     v = () => {
-      const e = Ce(n.compoundId);
+      const e = compoundById(n.compoundId);
       return `label-${(e ? e.name : "vial").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.png`;
     };
   l.querySelector("#lb-png").addEventListener("click", () => {
-    (Ea(v(), g()), toast("Label downloaded."));
+    (download(v(), g()), toast("Label downloaded."));
   });
   const b = l.querySelector("#lb-share");
   try {
@@ -3636,7 +3636,7 @@ function Bn() {
   return (
     l.querySelector("#lb-print").addEventListener("click", () => {
       const e = document.createElement("canvas");
-      On(e, a, "#FFFFFF", "#000000");
+      drawLabel(e, a, "#FFFFFF", "#000000");
       const t = window.open("", "_blank");
       t
         ? (t.document.write(`<img src="${e.toDataURL()}" style="width:40mm;height:20mm">`),
@@ -3649,106 +3649,106 @@ function Bn() {
         u.forEach(([e]) => {
           n.label[e] = a[e];
         }),
-        delete r.lbDraft[n.id],
-        s(),
+        delete ui.lbDraft[n.id],
+        saveData(),
         toast("Label saved to this vial."));
     }),
     c.querySelector("#lb-savedef").addEventListener("click", () => {
-      ((d.settings.labelDefaults = {
+      ((appData.settings.labelDefaults = {
         ribbon: a.ribbon,
         under: a.under,
         between: a.between,
         small: a.small,
         made: a.made,
       }),
-        s(),
+        saveData(),
         toast("Wording saved as your default."));
     }),
     c.querySelector("#lb-reset").addEventListener("click", () => {
-      (delete n.label, delete r.lbDraft[n.id], s(), redrawPage(), toast("Reset to the vial’s own values."));
+      (delete n.label, delete ui.lbDraft[n.id], saveData(), redrawPage(), toast("Reset to the vial’s own values."));
     }),
     document.fonts && document.fonts.ready && document.fonts.ready.then(m),
     setTimeout(m, 30),
     e
   );
 }
-let Hn = { vialMg: 10, bacMl: 2, dose: 2.5, unit: "mg", vialUnit: "mg", barrel: 100, from: "" },
-  Un = { vialMg: 10, dose: 2.5, unit: "mg", vialUnit: "mg", units: 25, from: "" },
-  Qn = { cid: "", dose: "", unit: "mg", freq: "daily", addVials: 0, vialMg: "" };
-function Nn() {
-  const e = Bt('<div class="stack"></div>');
+let toolsDraw = { vialMg: 10, bacMl: 2, dose: 2.5, unit: "mg", vialUnit: "mg", barrel: 100, from: "" },
+  toolsReverse = { vialMg: 10, dose: 2.5, unit: "mg", vialUnit: "mg", units: 25, from: "" },
+  toolsRunway = { cid: "", dose: "", unit: "mg", freq: "daily", addVials: 0, vialMg: "" };
+function toolsView() {
+  const e = htmlEl('<div class="stack"></div>');
   e.appendChild(
-    Bt(
+    htmlEl(
       '<div class="head"><div><h1>Tools</h1>\n    <p>Calculators for the questions that come before anything is recorded. Nothing here changes your stock or your logs.</p></div></div>',
     ),
   );
-  const t = Bt('<div class="grid2"></div>'),
-    n = ft(d.batches.filter((e) => "finished" !== e.status))
+  const t = htmlEl('<div class="grid2"></div>'),
+    n = sortBatches(appData.batches.filter((e) => "finished" !== e.status))
       .map((e) => {
-        const t = Ce(e.compoundId);
-        return `<option value="${e.id}">${Ht(t ? t.name : "?")} · ${Ht(e.vialMg)} mg${e.bacMl ? " in " + Ht(e.bacMl) + " mL" : ""}</option>`;
+        const t = compoundById(e.compoundId);
+        return `<option value="${e.id}">${esc(t ? t.name : "?")} · ${esc(e.vialMg)} mg${e.bacMl ? " in " + esc(e.bacMl) + " mL" : ""}</option>`;
       })
       .join(""),
-    a = Bt(
-      `<div class="panel"><h2>Draw calculator</h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 12px">What to pull for a dose, from a vial mixed with a known amount of water.</p>\n    <div class="field"><label for="a-from">Start from a vial in stock</label>\n      <select id="a-from"><option value="">Enter the numbers myself</option>${n}</select>\n      <span class="hint">Fills the fields in. Change any of them afterwards.</span></div>\n    <div class="fgrid">\n      <div class="field"><label for="a-vial">Vial strength</label>\n        <div class="unitwrap"><input id="a-vial" type="number" step="any" min="0" value="${Hn.vialMg}">\n          <select id="a-vu"><option value="mg"${"iu" !== Hn.vialUnit ? " selected" : ""}>mg</option>\n            <option value="iu"${"iu" === Hn.vialUnit ? " selected" : ""}>IU</option></select></div></div>\n      <div class="field"><label for="a-bac">Water added (mL)</label><input id="a-bac" type="number" step="any" min="0" value="${Hn.bacMl}">\n        <span class="hint">Bacteriostatic water the vial was mixed with.</span></div></div>\n    <div class="fgrid">\n      <div class="field"><label for="a-dose">Dose</label>\n        <div class="unitwrap"><input id="a-dose" type="number" step="any" min="0" value="${Hn.dose}">\n          <select id="a-unit"><option value="mg"${"mg" === Hn.unit ? " selected" : ""}>mg</option><option value="mcg"${"mcg" === Hn.unit ? " selected" : ""}>mcg</option><option value="iu"${"iu" === Hn.unit ? " selected" : ""}>IU</option></select></div></div>\n      <div class="field"><label for="a-barrel">Syringe barrel</label><select id="a-barrel">\n        <option value="100"${100 == Hn.barrel ? " selected" : ""}>1 mL (100 units)</option>\n        <option value="50"${50 == Hn.barrel ? " selected" : ""}>0.5 mL (50 units)</option>\n        <option value="30"${30 == Hn.barrel ? " selected" : ""}>0.3 mL (30 units)</option></select></div></div>\n    <div id="a-out"></div></div></div>`,
+    a = htmlEl(
+      `<div class="panel"><h2>Draw calculator</h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 12px">What to pull for a dose, from a vial mixed with a known amount of water.</p>\n    <div class="field"><label for="a-from">Start from a vial in stock</label>\n      <select id="a-from"><option value="">Enter the numbers myself</option>${n}</select>\n      <span class="hint">Fills the fields in. Change any of them afterwards.</span></div>\n    <div class="fgrid">\n      <div class="field"><label for="a-vial">Vial strength</label>\n        <div class="unitwrap"><input id="a-vial" type="number" step="any" min="0" value="${toolsDraw.vialMg}">\n          <select id="a-vu"><option value="mg"${"iu" !== toolsDraw.vialUnit ? " selected" : ""}>mg</option>\n            <option value="iu"${"iu" === toolsDraw.vialUnit ? " selected" : ""}>IU</option></select></div></div>\n      <div class="field"><label for="a-bac">Water added (mL)</label><input id="a-bac" type="number" step="any" min="0" value="${toolsDraw.bacMl}">\n        <span class="hint">Bacteriostatic water the vial was mixed with.</span></div></div>\n    <div class="fgrid">\n      <div class="field"><label for="a-dose">Dose</label>\n        <div class="unitwrap"><input id="a-dose" type="number" step="any" min="0" value="${toolsDraw.dose}">\n          <select id="a-unit"><option value="mg"${"mg" === toolsDraw.unit ? " selected" : ""}>mg</option><option value="mcg"${"mcg" === toolsDraw.unit ? " selected" : ""}>mcg</option><option value="iu"${"iu" === toolsDraw.unit ? " selected" : ""}>IU</option></select></div></div>\n      <div class="field"><label for="a-barrel">Syringe barrel</label><select id="a-barrel">\n        <option value="100"${100 == toolsDraw.barrel ? " selected" : ""}>1 mL (100 units)</option>\n        <option value="50"${50 == toolsDraw.barrel ? " selected" : ""}>0.5 mL (50 units)</option>\n        <option value="30"${30 == toolsDraw.barrel ? " selected" : ""}>0.3 mL (30 units)</option></select></div></div>\n    <div id="a-out"></div></div></div>`,
     ),
     s = () => {
-      Hn = {
-        vialMg: be(a.querySelector("#a-vial").value),
-        bacMl: be(a.querySelector("#a-bac").value),
-        dose: be(a.querySelector("#a-dose").value),
+      toolsDraw = {
+        vialMg: toNum(a.querySelector("#a-vial").value),
+        bacMl: toNum(a.querySelector("#a-bac").value),
+        dose: toNum(a.querySelector("#a-dose").value),
         unit: a.querySelector("#a-unit").value,
         vialUnit: a.querySelector("#a-vu").value,
         barrel: +a.querySelector("#a-barrel").value,
         from: a.querySelector("#a-from").value,
       };
-      const e = { base: "iu" === Hn.vialUnit ? "iu" : "mg" },
-        t = ("iu" === Hn.vialUnit) != ("iu" === Hn.unit),
-        n = Se(Hn.dose, Hn.unit),
-        s = Qe(Hn.vialMg, Hn.bacMl, n),
-        o = Hn.vialMg - Math.floor(s.perVial) * n;
+      const e = { base: "iu" === toolsDraw.vialUnit ? "iu" : "mg" },
+        t = ("iu" === toolsDraw.vialUnit) != ("iu" === toolsDraw.unit),
+        n = toMg(toolsDraw.dose, toolsDraw.unit),
+        s = drawMath(toolsDraw.vialMg, toolsDraw.bacMl, n),
+        o = toolsDraw.vialMg - Math.floor(s.perVial) * n;
       a.querySelector("#a-out").innerHTML =
-        `\n      <div style="background:var(--surface-2);border:1px solid var(--rule-soft);border-radius:7px;padding:12px">\n        <div class="eyebrow" style="margin:0 0 4px">Draw</div>\n        <div class="big-read">${fe(s.units, 1)}<small> units</small></div>\n        ${Wt(s.units, Hn.barrel, { compact: !0 })}\n        <div class="tiny muted">${fe(s.volMl, 3)} mL · ${fe(s.conc, 2)} ${Ae(e)}</div>\n        <div class="tiny muted">Makes ${fe(s.perVial, s.perVial % 1 ? 1 : 0)} doses${o > 5e-4 ? `, with ${$e(o, e)} left over` : ", with nothing left over"}.</div>\n        ${t ? `<div class="tiny" style="color:var(--due);margin-top:6px">The vial is in ${"iu" === Hn.vialUnit ? "IU" : "mg"} but the dose is in ${"iu" === Hn.unit ? "IU" : Hn.unit}. IU has no fixed mg equivalent, so put both in the same unit or this figure means nothing.</div>` : ""}\n        ${s.units > Hn.barrel ? '<div class="tiny" style="color:var(--alert);margin-top:6px">More than the barrel holds. Use less water, or split the dose.</div>' : ""}\n        ${s.units && s.units < 3 ? '<div class="tiny" style="color:var(--due);margin-top:6px">Under 3 units is hard to measure. More water spreads the same dose over more units.</div>' : ""}\n      </div>`;
+        `\n      <div style="background:var(--surface-2);border:1px solid var(--rule-soft);border-radius:7px;padding:12px">\n        <div class="eyebrow" style="margin:0 0 4px">Draw</div>\n        <div class="big-read">${fmt(s.units, 1)}<small> units</small></div>\n        ${syringeSvg(s.units, toolsDraw.barrel, { compact: !0 })}\n        <div class="tiny muted">${fmt(s.volMl, 3)} mL · ${fmt(s.conc, 2)} ${concUnit(e)}</div>\n        <div class="tiny muted">Makes ${fmt(s.perVial, s.perVial % 1 ? 1 : 0)} doses${o > 5e-4 ? `, with ${fmtAmount(o, e)} left over` : ", with nothing left over"}.</div>\n        ${t ? `<div class="tiny" style="color:var(--due);margin-top:6px">The vial is in ${"iu" === toolsDraw.vialUnit ? "IU" : "mg"} but the dose is in ${"iu" === toolsDraw.unit ? "IU" : toolsDraw.unit}. IU has no fixed mg equivalent, so put both in the same unit or this figure means nothing.</div>` : ""}\n        ${s.units > toolsDraw.barrel ? '<div class="tiny" style="color:var(--alert);margin-top:6px">More than the barrel holds. Use less water, or split the dose.</div>' : ""}\n        ${s.units && s.units < 3 ? '<div class="tiny" style="color:var(--due);margin-top:6px">Under 3 units is hard to measure. More water spreads the same dose over more units.</div>' : ""}\n      </div>`;
     };
   (a.querySelectorAll("input,select").forEach((e) => e.addEventListener("input", s)),
     a.querySelector("#a-from").addEventListener("change", (e) => {
-      const t = qe(e.target.value);
+      const t = batchById(e.target.value);
       if (t) {
         ((a.querySelector("#a-vial").value = t.vialMg),
           (a.querySelector("#a-bac").value = t.bacMl || ""),
-          (a.querySelector("#a-vu").value = Me(Ce(t.compoundId)) ? "iu" : "mg"));
-        const e = d.protocols.find((e) => e.compoundId === t.compoundId);
+          (a.querySelector("#a-vu").value = isIU(compoundById(t.compoundId)) ? "iu" : "mg"));
+        const e = appData.protocols.find((e) => e.compoundId === t.compoundId);
         e && ((a.querySelector("#a-dose").value = e.dose), (a.querySelector("#a-unit").value = e.unit));
       }
       s();
     }));
-  const o = Bt(
-      `<div class="panel"><h2>Mixing calculator</h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 12px">How much water to add so a dose lands on the syringe mark you want.</p>\n    <div class="field"><label for="b-from">Start from a vial in stock</label>\n      <select id="b-from"><option value="">Enter the numbers myself</option>${n}</select></div>\n    <div class="field"><label for="b-vial">Vial strength</label>\n      <div class="unitwrap"><input id="b-vial" type="number" step="any" min="0" value="${Un.vialMg}">\n        <select id="b-vu"><option value="mg"${"iu" !== Un.vialUnit ? " selected" : ""}>mg</option>\n          <option value="iu"${"iu" === Un.vialUnit ? " selected" : ""}>IU</option></select></div></div>\n    <div class="fgrid">\n      <div class="field"><label for="b-dose">Dose</label>\n        <div class="unitwrap"><input id="b-dose" type="number" step="any" min="0" value="${Un.dose}">\n          <select id="b-unit"><option value="mg"${"mg" === Un.unit ? " selected" : ""}>mg</option><option value="mcg"${"mcg" === Un.unit ? " selected" : ""}>mcg</option><option value="iu"${"iu" === Un.unit ? " selected" : ""}>IU</option></select></div></div>\n      <div class="field"><label for="b-units">Draw per shot (units)</label><input id="b-units" type="number" step="any" min="0" value="${Un.units}">\n        <span class="hint" id="b-ml"></span></div></div>\n    <div id="b-out"></div></div></div>`,
+  const o = htmlEl(
+      `<div class="panel"><h2>Mixing calculator</h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 12px">How much water to add so a dose lands on the syringe mark you want.</p>\n    <div class="field"><label for="b-from">Start from a vial in stock</label>\n      <select id="b-from"><option value="">Enter the numbers myself</option>${n}</select></div>\n    <div class="field"><label for="b-vial">Vial strength</label>\n      <div class="unitwrap"><input id="b-vial" type="number" step="any" min="0" value="${toolsReverse.vialMg}">\n        <select id="b-vu"><option value="mg"${"iu" !== toolsReverse.vialUnit ? " selected" : ""}>mg</option>\n          <option value="iu"${"iu" === toolsReverse.vialUnit ? " selected" : ""}>IU</option></select></div></div>\n    <div class="fgrid">\n      <div class="field"><label for="b-dose">Dose</label>\n        <div class="unitwrap"><input id="b-dose" type="number" step="any" min="0" value="${toolsReverse.dose}">\n          <select id="b-unit"><option value="mg"${"mg" === toolsReverse.unit ? " selected" : ""}>mg</option><option value="mcg"${"mcg" === toolsReverse.unit ? " selected" : ""}>mcg</option><option value="iu"${"iu" === toolsReverse.unit ? " selected" : ""}>IU</option></select></div></div>\n      <div class="field"><label for="b-units">Draw per shot (units)</label><input id="b-units" type="number" step="any" min="0" value="${toolsReverse.units}">\n        <span class="hint" id="b-ml"></span></div></div>\n    <div id="b-out"></div></div></div>`,
     ),
     i = () => {
-      Un = {
-        vialMg: be(o.querySelector("#b-vial").value),
-        dose: be(o.querySelector("#b-dose").value),
+      toolsReverse = {
+        vialMg: toNum(o.querySelector("#b-vial").value),
+        dose: toNum(o.querySelector("#b-dose").value),
         unit: o.querySelector("#b-unit").value,
         vialUnit: o.querySelector("#b-vu").value,
-        units: be(o.querySelector("#b-units").value),
+        units: toNum(o.querySelector("#b-units").value),
         from: o.querySelector("#b-from").value,
       };
-      const e = { base: "iu" === Un.vialUnit ? "iu" : "mg" },
-        t = ("iu" === Un.vialUnit) != ("iu" === Un.unit),
-        n = Se(Un.dose, Un.unit),
-        a = Ne(Un.vialMg, n, Un.units);
-      ((o.querySelector("#b-ml").textContent = `${fe(Un.units / Oe, 3)} mL on the syringe`),
+      const e = { base: "iu" === toolsReverse.vialUnit ? "iu" : "mg" },
+        t = ("iu" === toolsReverse.vialUnit) != ("iu" === toolsReverse.unit),
+        n = toMg(toolsReverse.dose, toolsReverse.unit),
+        a = waterMath(toolsReverse.vialMg, n, toolsReverse.units);
+      ((o.querySelector("#b-ml").textContent = `${fmt(toolsReverse.units / UNITS_PER_ML, 3)} mL on the syringe`),
         (o.querySelector("#b-out").innerHTML =
-          `\n      <div style="background:var(--surface-2);border:1px solid var(--rule-soft);border-radius:7px;padding:12px;display:flex;gap:14px;align-items:flex-start">\n        <div style="flex:none;text-align:center">${jt(1, "var(--signal)", 52)}\n          <div class="tiny muted" style="margin-top:4px">${a.waterMl ? Fe(a.waterMl) + " mL vial" : ""}</div></div>\n        <div style="flex:1">\n          <div class="eyebrow" style="margin:0 0 4px">Mix with</div>\n          <div class="big-read">${fe(a.waterMl, 2)}<small> mL</small></div>\n          <div class="tiny muted" style="margin-top:8px">Your dose lands exactly on that mark.</div>\n          <div class="tiny muted">${fe(a.conc, 2)} ${Ae(e)}</div>\n          <div class="tiny muted">Makes ${fe(a.perVial, a.perVial % 1 ? 1 : 0)} doses.</div>\n          ${t ? '<div class="tiny" style="color:var(--due);margin-top:6px">Vial and dose are in different units. IU does not convert to mg — match them up.</div>' : ""}\n        </div></div>`));
+          `\n      <div style="background:var(--surface-2);border:1px solid var(--rule-soft);border-radius:7px;padding:12px;display:flex;gap:14px;align-items:flex-start">\n        <div style="flex:none;text-align:center">${vialSvg(1, "var(--signal)", 52)}\n          <div class="tiny muted" style="margin-top:4px">${a.waterMl ? niceCeil(a.waterMl) + " mL vial" : ""}</div></div>\n        <div style="flex:1">\n          <div class="eyebrow" style="margin:0 0 4px">Mix with</div>\n          <div class="big-read">${fmt(a.waterMl, 2)}<small> mL</small></div>\n          <div class="tiny muted" style="margin-top:8px">Your dose lands exactly on that mark.</div>\n          <div class="tiny muted">${fmt(a.conc, 2)} ${concUnit(e)}</div>\n          <div class="tiny muted">Makes ${fmt(a.perVial, a.perVial % 1 ? 1 : 0)} doses.</div>\n          ${t ? '<div class="tiny" style="color:var(--due);margin-top:6px">Vial and dose are in different units. IU does not convert to mg — match them up.</div>' : ""}\n        </div></div>`));
     };
   (o.querySelectorAll("input,select").forEach((e) => e.addEventListener("input", i)),
     o.querySelector("#b-from").addEventListener("change", (e) => {
-      const t = qe(e.target.value);
+      const t = batchById(e.target.value);
       if (t) {
         ((o.querySelector("#b-vial").value = t.vialMg),
-          (o.querySelector("#b-vu").value = Me(Ce(t.compoundId)) ? "iu" : "mg"));
-        const e = d.protocols.find((e) => e.compoundId === t.compoundId);
+          (o.querySelector("#b-vu").value = isIU(compoundById(t.compoundId)) ? "iu" : "mg"));
+        const e = appData.protocols.find((e) => e.compoundId === t.compoundId);
         e && ((o.querySelector("#b-dose").value = e.dose), (o.querySelector("#b-unit").value = e.unit));
       }
       i();
@@ -3756,56 +3756,56 @@ function Nn() {
     t.appendChild(a),
     t.appendChild(o),
     e.appendChild(t));
-  const l = [...new Set(d.batches.filter((e) => "finished" !== e.status).map((e) => e.compoundId))];
+  const l = [...new Set(appData.batches.filter((e) => "finished" !== e.status).map((e) => e.compoundId))];
   if (l.length) {
-    if (!Qn.cid || !l.includes(Qn.cid)) {
-      Qn.cid = l[0];
-      const e = d.protocols.find((e) => e.compoundId === Qn.cid && e.active);
+    if (!toolsRunway.cid || !l.includes(toolsRunway.cid)) {
+      toolsRunway.cid = l[0];
+      const e = appData.protocols.find((e) => e.compoundId === toolsRunway.cid && e.active);
       if (e) {
-        const t = Ge(e, te());
-        ((Qn.dose = t.dose),
-          (Qn.unit = t.unit),
-          (Qn.freq = "daily" === e.sched ? (e.split ? "twice" : "daily") : "custom"));
+        const t = doseOn(e, todayIso());
+        ((toolsRunway.dose = t.dose),
+          (toolsRunway.unit = t.unit),
+          (toolsRunway.freq = "daily" === e.sched ? (e.split ? "twice" : "daily") : "custom"));
       }
     }
-    const t = Bt(
+    const t = htmlEl(
         `<div class="panel"><h2>Runway simulator</h2><div class="pbody">\n      <p class="tiny muted" style="margin:0 0 12px">How long your stock lasts at a dose you are thinking about, rather than the one you are on.</p>\n      <div class="fgrid3">\n        <div class="field"><label for="c-c">Compound</label><select id="c-c">${l
           .map((e) => {
-            const t = Ce(e);
-            return `<option value="${e}"${Qn.cid === e ? " selected" : ""}>${Ht(t.name)}</option>`;
+            const t = compoundById(e);
+            return `<option value="${e}"${toolsRunway.cid === e ? " selected" : ""}>${esc(t.name)}</option>`;
           })
           .join(
             "",
-          )}</select>\n          <span class="hint" id="c-hand"></span></div>\n        <div class="field"><label for="c-d">Dose to try</label>\n          <div class="unitwrap"><input id="c-d" type="number" step="any" min="0" value="${Ht(Qn.dose)}">\n            <select id="c-u"><option value="mg"${"mg" === Qn.unit ? " selected" : ""}>mg</option><option value="mcg"${"mcg" === Qn.unit ? " selected" : ""}>mcg</option><option value="iu"${"iu" === Qn.unit ? " selected" : ""}>IU</option></select></div>\n          <span class="hint" id="c-now"></span></div>\n        <div class="field"><label for="c-f">How often</label><select id="c-f">\n          <option value="daily"${"daily" === Qn.freq ? " selected" : ""}>Daily</option>\n          <option value="2"${"2" === Qn.freq ? " selected" : ""}>Every other day</option>\n          <option value="3"${"3" === Qn.freq ? " selected" : ""}>Every 3 days</option>\n          <option value="7"${"7" === Qn.freq ? " selected" : ""}>Weekly</option>\n          <option value="twice"${"twice" === Qn.freq ? " selected" : ""}>Twice a day</option></select></div></div>\n      <div class="fgrid">\n        <div class="field"><label for="c-av">Vials to add</label><input id="c-av" type="number" min="0" step="1" value="${Ht(Qn.addVials)}"><span class="hint">Optional</span></div>\n        <div class="field"><label for="c-vm">Of what size (mg)</label><input id="c-vm" type="number" step="any" min="0" value="${Ht(Qn.vialMg)}" placeholder=""></div></div>\n      <div id="c-out"></div></div></div>`,
+          )}</select>\n          <span class="hint" id="c-hand"></span></div>\n        <div class="field"><label for="c-d">Dose to try</label>\n          <div class="unitwrap"><input id="c-d" type="number" step="any" min="0" value="${esc(toolsRunway.dose)}">\n            <select id="c-u"><option value="mg"${"mg" === toolsRunway.unit ? " selected" : ""}>mg</option><option value="mcg"${"mcg" === toolsRunway.unit ? " selected" : ""}>mcg</option><option value="iu"${"iu" === toolsRunway.unit ? " selected" : ""}>IU</option></select></div>\n          <span class="hint" id="c-now"></span></div>\n        <div class="field"><label for="c-f">How often</label><select id="c-f">\n          <option value="daily"${"daily" === toolsRunway.freq ? " selected" : ""}>Daily</option>\n          <option value="2"${"2" === toolsRunway.freq ? " selected" : ""}>Every other day</option>\n          <option value="3"${"3" === toolsRunway.freq ? " selected" : ""}>Every 3 days</option>\n          <option value="7"${"7" === toolsRunway.freq ? " selected" : ""}>Weekly</option>\n          <option value="twice"${"twice" === toolsRunway.freq ? " selected" : ""}>Twice a day</option></select></div></div>\n      <div class="fgrid">\n        <div class="field"><label for="c-av">Vials to add</label><input id="c-av" type="number" min="0" step="1" value="${esc(toolsRunway.addVials)}"><span class="hint">Optional</span></div>\n        <div class="field"><label for="c-vm">Of what size (mg)</label><input id="c-vm" type="number" step="any" min="0" value="${esc(toolsRunway.vialMg)}" placeholder=""></div></div>\n      <div id="c-out"></div></div></div>`,
       ),
       n = () => {
-        Qn = {
+        toolsRunway = {
           cid: t.querySelector("#c-c").value,
-          dose: be(t.querySelector("#c-d").value),
+          dose: toNum(t.querySelector("#c-d").value),
           unit: t.querySelector("#c-u").value,
           freq: t.querySelector("#c-f").value,
-          addVials: be(t.querySelector("#c-av").value),
-          vialMg: be(t.querySelector("#c-vm").value),
+          addVials: toNum(t.querySelector("#c-av").value),
+          vialMg: toNum(t.querySelector("#c-vm").value),
         };
-        const e = wt(Qn.cid) + Qn.addVials * Qn.vialMg,
-          n = Se(Qn.dose, Qn.unit),
-          a = "daily" === Qn.freq ? 1 : "twice" === Qn.freq ? 2 : 1 / be(Qn.freq),
+        const e = stockMg(toolsRunway.cid) + toolsRunway.addVials * toolsRunway.vialMg,
+          n = toMg(toolsRunway.dose, toolsRunway.unit),
+          a = "daily" === toolsRunway.freq ? 1 : "twice" === toolsRunway.freq ? 2 : 1 / toNum(toolsRunway.freq),
           s = n > 0 ? Math.floor(e / n) : null,
           o = null !== s && a > 0 ? Math.floor(s / a) : null,
-          i = be(d.settings.targetDays) || 90,
-          l = At(Qn.cid);
-        t.querySelector("#c-hand").textContent = `${$e(wt(Qn.cid), Ce(Qn.cid))} on hand`;
-        const r = d.protocols.find((e) => e.compoundId === Qn.cid && e.active),
-          c = r ? Ge(r, te()) : null;
+          i = toNum(appData.settings.targetDays) || 90,
+          l = daysLeft(toolsRunway.cid);
+        t.querySelector("#c-hand").textContent = `${fmtAmount(stockMg(toolsRunway.cid), compoundById(toolsRunway.cid))} on hand`;
+        const r = appData.protocols.find((e) => e.compoundId === toolsRunway.cid && e.active),
+          c = r ? doseOn(r, todayIso()) : null;
         ((t.querySelector("#c-now").textContent = c
-          ? `You take ${fe(be(c.dose), 3)} ${c.unit} at the moment${c.of ? ` — phase ${c.phase} of ${c.of}${c.holding ? ", held" : ""}` : ""}.`
+          ? `You take ${fmt(toNum(c.dose), 3)} ${c.unit} at the moment${c.of ? ` — phase ${c.phase} of ${c.of}${c.holding ? ", held" : ""}` : ""}.`
           : ""),
           (t.querySelector("#c-out").innerHTML =
-            `\n        <div style="background:var(--surface-2);border:1px solid var(--rule-soft);border-radius:7px;padding:12px">\n          <div class="eyebrow" style="margin:0 0 4px">Your stock lasts</div>\n          <div class="big-read" style="color:${null === o ? "var(--ink-2)" : o >= i ? "var(--done)" : o < 0.34 * i ? "var(--alert)" : "var(--due)"}">${null === o ? "—" : ke(o)}<small> left</small></div>\n          <div class="bar ${null === o ? "" : o >= i ? "good" : o < 0.34 * i ? "bad" : "warn"}" style="margin:10px 0 8px">\n            <i style="width:${null === o ? 0 : Math.min(100, (o / i) * 100)}%"></i></div>\n          <div class="tiny muted">${null === s ? "Enter a dose." : `${s} doses left · until ${oe(ne(te(), o))}`}</div>\n          <div class="tiny muted">${$e(e, Ce(Qn.cid))} on hand${Qn.addVials ? ` (including ${Qn.addVials} new vial${Qn.addVials > 1 ? "s" : ""})` : ""}</div>\n          <div class="tiny muted">As things stand: ${null === l ? "no active protocol" : ke(l) + " left"}</div>\n        </div>`));
+            `\n        <div style="background:var(--surface-2);border:1px solid var(--rule-soft);border-radius:7px;padding:12px">\n          <div class="eyebrow" style="margin:0 0 4px">Your stock lasts</div>\n          <div class="big-read" style="color:${null === o ? "var(--ink-2)" : o >= i ? "var(--done)" : o < 0.34 * i ? "var(--alert)" : "var(--due)"}">${null === o ? "—" : fmtDuration(o)}<small> left</small></div>\n          <div class="bar ${null === o ? "" : o >= i ? "good" : o < 0.34 * i ? "bad" : "warn"}" style="margin:10px 0 8px">\n            <i style="width:${null === o ? 0 : Math.min(100, (o / i) * 100)}%"></i></div>\n          <div class="tiny muted">${null === s ? "Enter a dose." : `${s} doses left · until ${shortDateYear(addDays(todayIso(), o))}`}</div>\n          <div class="tiny muted">${fmtAmount(e, compoundById(toolsRunway.cid))} on hand${toolsRunway.addVials ? ` (including ${toolsRunway.addVials} new vial${toolsRunway.addVials > 1 ? "s" : ""})` : ""}</div>\n          <div class="tiny muted">As things stand: ${null === l ? "no active protocol" : fmtDuration(l) + " left"}</div>\n        </div>`));
       };
     (t.querySelectorAll("input,select").forEach((e) => e.addEventListener("input", n)),
       t.querySelector("#c-c").addEventListener("change", () => {
-        const e = Ee(t.querySelector("#c-c").value);
+        const e = currentBatch(t.querySelector("#c-c").value);
         (e && (t.querySelector("#c-vm").value = e.vialMg), n());
       }),
       e.appendChild(t),
@@ -3838,8 +3838,7 @@ const SYNC_LISTS = [
     'const firebaseConfig = {\n  apiKey: "AIzaSyCII6ZuPDIFfanFXNqX_QaKG7W5_B7-pYg",\n  authDomain: "korah-peptides.firebaseapp.com",\n  projectId: "korah-peptides",\n  storageBucket: "korah-peptides.firebasestorage.app",\n  messagingSenderId: "28465208707",\n  appId: "1:28465208707:web:09df25830f07778cc06ab6"\n};',
   SHARED_SYNC = !OWN_SYNC_SITE && !!COMMUNITY_FIREBASE.trim(),
   SYNC_HERE = OWN_SYNC_SITE || SHARED_SYNC,
-  Gn = 8,
-  syncConfigText = () => (SHARED_SYNC ? COMMUNITY_FIREBASE : (d.settings && d.settings.sync && d.settings.sync.config) || ""),
+  syncConfigText = () => (SHARED_SYNC ? COMMUNITY_FIREBASE : (appData.settings && appData.settings.sync && appData.settings.sync.config) || ""),
   FIREBASE_VERSIONS = ["12.18.0", "11.10.0", "10.14.1"];
 let fb = null,
   syncing = !1,
@@ -3856,19 +3855,19 @@ function stampChanges() {
   const e = Date.now(),
     t = {};
   for (const n of SYNC_LISTS)
-    for (const a of d[n] || []) {
+    for (const a of appData[n] || []) {
       if (!a || !a.id) continue;
       t[a.id] = 1;
       const n = itemText(a);
       seenItems[a.id] !== n && ((a._m = e), (seenItems[a.id] = n));
     }
-  d._del = d._del || {};
+  appData._del = appData._del || {};
   // b77: "__settings" is not an item; before b77 it was marked deleted and re-stamped on every save.
-  for (const n in seenItems) "__settings" === n || t[n] || d._del[n] || ((d._del[n] = e), delete seenItems[n]);
-  const n = itemText(d.settings || {});
-  seenItems.__settings !== n && ((d.settings._m = e), (seenItems.__settings = n));
+  for (const n in seenItems) "__settings" === n || t[n] || appData._del[n] || ((appData._del[n] = e), delete seenItems[n]);
+  const n = itemText(appData.settings || {});
+  seenItems.__settings !== n && ((appData.settings._m = e), (seenItems.__settings = n));
   // b77: each setting gets its own change time, so two devices changing different settings both keep theirs.
-  const st = d.settings || {};
+  const st = appData.settings || {};
   st._mk = st._mk || {};
   for (const k in st) {
     if ("_m" === k || "_mk" === k) continue;
@@ -3878,15 +3877,15 @@ function stampChanges() {
 }
 function rememberSeen() {
   seenItems = {};
-  for (const e of SYNC_LISTS) for (const t of d[e] || []) t && t.id && (seenItems[t.id] = itemText(t));
-  seenItems.__settings = itemText(d.settings || {});
+  for (const e of SYNC_LISTS) for (const t of appData[e] || []) t && t.id && (seenItems[t.id] = itemText(t));
+  seenItems.__settings = itemText(appData.settings || {});
   seenSettings = {};
-  for (const k in d.settings || {}) "_m" !== k && "_mk" !== k && (seenSettings[k] = JSON.stringify(d.settings[k]));
+  for (const k in appData.settings || {}) "_m" !== k && "_mk" !== k && (seenSettings[k] = JSON.stringify(appData.settings[k]));
 }
 function mergeData(e, t) {
   const n = Object.assign({}, t._del || {});
   for (const t in e._del || {}) n[t] = Math.max(n[t] || 0, e._del[t]);
-  const a = l();
+  const a = emptyData();
   a._del = n;
   for (const s of SYNC_LISTS) {
     const o = {};
@@ -3915,7 +3914,7 @@ function mergeSettings(mine, theirs) {
     theirAll = theirs._m || 0,
     myKeys = mine._mk || {},
     theirKeys = theirs._mk || {},
-    out = Object.assign(l().settings, theirAll > myAll ? theirs : mine),
+    out = Object.assign(emptyData().settings, theirAll > myAll ? theirs : mine),
     times = {};
   for (const k of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
     if ("_m" === k || "_mk" === k) continue;
@@ -4036,7 +4035,7 @@ function hasPassphrase() {
   }
 }
 function syncSettings() {
-  return d.settings.sync || (d.settings.sync = { enabled: !1, config: "", email: "", auto: !0 });
+  return appData.settings.sync || (appData.settings.sync = { enabled: !1, config: "", email: "", auto: !0 });
 }
 async function firebaseReady() {
   const e = syncConfigText();
@@ -4068,7 +4067,7 @@ async function syncSignIn(e, t, n) {
     } catch (e) {}
   const o = n ? a.auth.createUserWithEmailAndPassword : a.auth.signInWithEmailAndPassword,
     i = await o(a.authI, e, t);
-  return ((l.email = e), s(), i.user);
+  return ((l.email = e), saveData(), i.user);
 }
 async function restoreSession() {
   const e = syncSettings();
@@ -4105,8 +4104,8 @@ async function syncNow(e) {
     if (n.length < 8) throw new Error("Set a passphrase of at least 8 characters in Settings → Sync first.");
     const o = a.fs.doc(a.db, "logs", s.uid);
     stampChanges();
-    const base = d,
-      g = contentSignature(d),
+    const base = appData,
+      g = contentSignature(appData),
       // read the cloud copy, merge, write it back. b79: inside a Firestore transaction, so if another device
       // writes between the read and the write, Firestore runs this again on the newer copy instead of
       // letting one device overwrite the other.
@@ -4132,11 +4131,11 @@ async function syncNow(e) {
       ((res = await job(() => a.fs.getDoc(o), (r) => (w = r))), await a.fs.setDoc(o, w));
     }
     // anything saved on this device while the sync was running is merged in, not lost
-    (stampChanges(), (d = mergeData(d, res.l)), rememberSeen(), await t.set(JSON.stringify(d)));
-    const behind = contentSignature(d) !== contentSignature(res.l);
+    (stampChanges(), (appData = mergeData(appData, res.l)), rememberSeen(), await store.set(JSON.stringify(appData)));
+    const behind = contentSignature(appData) !== contentSignature(res.l);
     ((syncState = { status: "ok", msg: "", at: Date.now(), kb: Math.round(res.sz / 1024) }),
       e || toast("Synced."),
-      contentSignature(d) !== g ? redrawPage(1) : showSyncStatus(),
+      contentSignature(appData) !== g ? redrawPage(1) : showSyncStatus(),
       behind && syncSoon());
   } catch (t) {
     ((syncState = { status: "error", msg: t.message || String(t), at: syncState.at }),
@@ -4148,7 +4147,7 @@ async function syncNow(e) {
 }
 function syncSoon() {
   if (!SYNC_HERE) return;
-  const e = d.settings && d.settings.sync;
+  const e = appData.settings && appData.settings.sync;
   e && e.enabled && e.auto && (clearTimeout(syncTimer), (syncTimer = setTimeout(() => syncNow(!0), 4e3)));
 }
 function showSyncStatus() {
@@ -4161,31 +4160,31 @@ function showSyncStatus() {
       : !t && syncSettings().enabled && syncSettings().email && sessionRestoring() && "error" !== syncState.status
         ? '<span class="pill">Reconnecting…</span>'
         : "error" === syncState.status
-          ? `<span class="pill late">Problem</span> <span class="tiny" style="color:var(--alert)">${Ht(syncState.msg)}</span>`
+          ? `<span class="pill late">Problem</span> <span class="tiny" style="color:var(--alert)">${esc(syncState.msg)}</span>`
           : t
-            ? `<span class="pill done">Signed in as ${Ht(t.email)}</span>${syncState.at ? ` <span class="tiny muted">last synced ${Ht(re(new Date(syncState.at)))}${syncState.kb ? ` · ${syncState.kb} KB of 1,000 KB` : ""}</span>` : ""}`
+            ? `<span class="pill done">Signed in as ${esc(t.email)}</span>${syncState.at ? ` <span class="tiny muted">last synced ${esc(clockTime(new Date(syncState.at)))}${syncState.kb ? ` · ${syncState.kb} KB of 1,000 KB` : ""}</span>` : ""}`
             : '<span class="pill">Not signed in</span>';
 }
-function Sa() {
+function syncPanel() {
   const e = syncSettings(),
     n = "undefined" != typeof localStorage && localStorage.getItem("protocol:pass"),
-    a = Bt(
-      `<div class="panel"><h2>Sync between devices<span id="sync-status"></span></h2><div class="pbody">${appKindLine(`Its sign-in accounts are separate from the ${APP_OTHER} app's: an email and password made in one does not work in the other.`)}\n    <p class="tiny muted" style="margin:0 0 12px">${SHARED_SYNC ? "Optional. Off by default — everything works without it. Turn it on to keep your phone and your computer level: sign in with the same email, password and passphrase on both. Your log is scrambled in this browser with your passphrase before it uploads, so what is stored is unreadable to anyone else, including whoever runs this site. Logging on one device does not wipe the other." : "Optional. Off by default — everything works without it. When it is on, your log is merged\n      through your own Firebase project so the phone and the PC stay level. Records are matched by id and the newer edit wins, so logging\n      on one device does not wipe the other."}</p>\n    <label class="check"><input type="checkbox" id="sy-on" ${e.enabled ? "checked" : ""}><span>Turn sync on</span></label>\n    <div id="sy-body" ${e.enabled ? "" : "hidden"}>\n      ${SHARED_SYNC ? "" : `<div class="field"><label for="sy-cfg">Firebase config</label>\n        <textarea id="sy-cfg" style="min-height:110px;font-family:var(--mono);font-size:12px" placeholder="Paste the whole firebaseConfig block from the Firebase console">${Ht(e.config)}</textarea>\n        <span class="hint">Project settings › Your apps › the web app › Config. Paste it all; the fields are picked out for you.</span></div>`}\n      <div class="fgrid">\n        <div class="field"><label for="sy-em">Email</label><input id="sy-em" type="email" autocomplete="username" value="${Ht(e.email)}"></div>\n        <div class="field"><label for="sy-pw">Password</label>\n          <input id="sy-pw" type="password" autocomplete="current-password" placeholder="${sessionRestoring() ? "•••••• saved on this device" : "At least 6 characters"}"></div>\n      </div>\n      <label class="check"><input type="checkbox" id="sy-rem" ${!1 !== e.remember ? "checked" : ""}>\n        <span>Stay signed in on this device</span></label>\n      <div class="field"><label for="sy-ph">Passphrase (encryption, required)</label>\n        <input id="sy-ph" type="password" autocomplete="off" placeholder="${n ? "•••••• already set on this device" : "At least 8 characters"}">\n        <span class="hint">${SHARED_SYNC ? "Scrambles the log in your browser before it uploads. Use the same passphrase on both devices. <b>There is no way to recover it.</b> If you lose it, the only way back is to start the cloud copy over from a device that still has your data. Write it down somewhere real." : "Scrambles the log in your browser before it uploads, so the database holds text nobody can read — not Google, not me.\n          Use the same passphrase on both devices. <b>There is no way to recover it.</b> Lose it and the synced copy is gone for good, so write it down somewhere real."}</span></div>\n      ${SYNC_HERE ? '<div class="field"><label for="sy-ph2">Repeat passphrase (new accounts only)</label>\n        <input id="sy-ph2" type="password" autocomplete="off"></div>' : ""}\n      <div class="row" style="margin-bottom:10px">\n        <button class="btn" id="sy-in">Sign in</button>\n        <button class="btn ghost" id="sy-new">Create account</button>\n        <button class="btn ghost" id="sy-go">Sync now</button>\n        <button class="btn ghost" id="sy-out">Sign out</button>\n        <button class="btn ghost" id="sy-fp">Forgot password</button></div>\n      <label class="check" style="margin:0"><input type="checkbox" id="sy-auto" ${!1 !== e.auto ? "checked" : ""}><span>Sync automatically a few seconds after a change</span></label>\n      ${SYNC_HERE ? '<p class="tiny muted" style="margin:12px 0 0">Lost your passphrase? Type a new one above, then\n        <button class="btn ghost sm" id="sy-reset">Replace the cloud copy with this device</button>\n        The old cloud copy is gone for good; this device’s data becomes the new one.</p>' : ""}\n    </div></div></div>`,
+    a = htmlEl(
+      `<div class="panel"><h2>Sync between devices<span id="sync-status"></span></h2><div class="pbody">${appKindLine(`Its sign-in accounts are separate from the ${APP_OTHER} app's: an email and password made in one does not work in the other.`)}\n    <p class="tiny muted" style="margin:0 0 12px">${SHARED_SYNC ? "Optional. Off by default — everything works without it. Turn it on to keep your phone and your computer level: sign in with the same email, password and passphrase on both. Your log is scrambled in this browser with your passphrase before it uploads, so what is stored is unreadable to anyone else, including whoever runs this site. Logging on one device does not wipe the other." : "Optional. Off by default — everything works without it. When it is on, your log is merged\n      through your own Firebase project so the phone and the PC stay level. Records are matched by id and the newer edit wins, so logging\n      on one device does not wipe the other."}</p>\n    <label class="check"><input type="checkbox" id="sy-on" ${e.enabled ? "checked" : ""}><span>Turn sync on</span></label>\n    <div id="sy-body" ${e.enabled ? "" : "hidden"}>\n      ${SHARED_SYNC ? "" : `<div class="field"><label for="sy-cfg">Firebase config</label>\n        <textarea id="sy-cfg" style="min-height:110px;font-family:var(--mono);font-size:12px" placeholder="Paste the whole firebaseConfig block from the Firebase console">${esc(e.config)}</textarea>\n        <span class="hint">Project settings › Your apps › the web app › Config. Paste it all; the fields are picked out for you.</span></div>`}\n      <div class="fgrid">\n        <div class="field"><label for="sy-em">Email</label><input id="sy-em" type="email" autocomplete="username" value="${esc(e.email)}"></div>\n        <div class="field"><label for="sy-pw">Password</label>\n          <input id="sy-pw" type="password" autocomplete="current-password" placeholder="${sessionRestoring() ? "•••••• saved on this device" : "At least 6 characters"}"></div>\n      </div>\n      <label class="check"><input type="checkbox" id="sy-rem" ${!1 !== e.remember ? "checked" : ""}>\n        <span>Stay signed in on this device</span></label>\n      <div class="field"><label for="sy-ph">Passphrase (encryption, required)</label>\n        <input id="sy-ph" type="password" autocomplete="off" placeholder="${n ? "•••••• already set on this device" : "At least 8 characters"}">\n        <span class="hint">${SHARED_SYNC ? "Scrambles the log in your browser before it uploads. Use the same passphrase on both devices. <b>There is no way to recover it.</b> If you lose it, the only way back is to start the cloud copy over from a device that still has your data. Write it down somewhere real." : "Scrambles the log in your browser before it uploads, so the database holds text nobody can read — not Google, not me.\n          Use the same passphrase on both devices. <b>There is no way to recover it.</b> Lose it and the synced copy is gone for good, so write it down somewhere real."}</span></div>\n      ${SYNC_HERE ? '<div class="field"><label for="sy-ph2">Repeat passphrase (new accounts only)</label>\n        <input id="sy-ph2" type="password" autocomplete="off"></div>' : ""}\n      <div class="row" style="margin-bottom:10px">\n        <button class="btn" id="sy-in">Sign in</button>\n        <button class="btn ghost" id="sy-new">Create account</button>\n        <button class="btn ghost" id="sy-go">Sync now</button>\n        <button class="btn ghost" id="sy-out">Sign out</button>\n        <button class="btn ghost" id="sy-fp">Forgot password</button></div>\n      <label class="check" style="margin:0"><input type="checkbox" id="sy-auto" ${!1 !== e.auto ? "checked" : ""}><span>Sync automatically a few seconds after a change</span></label>\n      ${SYNC_HERE ? '<p class="tiny muted" style="margin:12px 0 0">Lost your passphrase? Type a new one above, then\n        <button class="btn ghost sm" id="sy-reset">Replace the cloud copy with this device</button>\n        The old cloud copy is gone for good; this device’s data becomes the new one.</p>' : ""}\n    </div></div></div>`,
     ),
     o = a.querySelector("#sy-on");
   o.addEventListener("change", () => {
-    ((e.enabled = o.checked), (a.querySelector("#sy-body").hidden = !o.checked), s(), showSyncStatus());
+    ((e.enabled = o.checked), (a.querySelector("#sy-body").hidden = !o.checked), saveData(), showSyncStatus());
   });
   const i = a.querySelector("#sy-cfg");
   (i &&
     i.addEventListener("input", (t) => {
-      ((e.config = t.target.value), s());
+      ((e.config = t.target.value), saveData());
     }),
     a.querySelector("#sy-auto").addEventListener("change", (t) => {
-      ((e.auto = t.target.checked), s());
+      ((e.auto = t.target.checked), saveData());
     }),
     a.querySelector("#sy-rem").addEventListener("change", (t) => {
-      ((e.remember = t.target.checked), s());
+      ((e.remember = t.target.checked), saveData());
     }));
   const l = async (e) => {
     let {
@@ -4276,7 +4275,7 @@ function Sa() {
         const e = a.querySelector("#sy-ph").value;
         if (e.length < 8) toast("Type the new passphrase (8+ characters) in the Passphrase box first.");
         else if (syncUser())
-          if (d.compounds.length || d.logs.length) {
+          if (appData.compounds.length || appData.logs.length) {
             if (
               confirm(
                 "This replaces the synced copy in the cloud with what is on THIS device, scrambled with the passphrase you just typed. Anything that was only in the old cloud copy is lost for good. Continue?",
@@ -4285,8 +4284,8 @@ function Sa() {
               try {
                 localStorage.setItem("protocol:pass", e);
                 const n = await firebaseReady();
-                (stampChanges(), rememberSeen(), await t.set(JSON.stringify(d)));
-                const a = await packRecord(d, e);
+                (stampChanges(), rememberSeen(), await store.set(JSON.stringify(appData)));
+                const a = await packRecord(appData, e);
                 ((a.updatedAt = Date.now()),
                   await n.fs.setDoc(n.fs.doc(n.db, "logs", syncUser().uid), a),
                   (syncState = { status: "ok", msg: "", at: Date.now() }),
@@ -4310,7 +4309,7 @@ function Sa() {
 let reconnectTries = 0;
 async function syncReconnect() {
   if (!SYNC_HERE) return;
-  const e = d.settings && d.settings.sync;
+  const e = appData.settings && appData.settings.sync;
   if (e && e.enabled && syncConfigText())
     try {
       const t = await firebaseReady();
@@ -4330,72 +4329,72 @@ async function syncReconnect() {
         : ((syncState = { status: "error", msg: e.message || "Could not reconnect.", at: syncState.at }), showSyncStatus());
     }
 }
-function Aa() {
-  const e = Bt('<div class="stack"></div>');
+function libraryView() {
+  const e = htmlEl('<div class="stack"></div>');
   if (
     (e.appendChild(
-      Bt(
-        `<div class="head"><div><h1>Library</h1>\n    <p>Half-lives are reported figures used to draw the decay curves. Blank means no dependable human number, so no curve is drawn. Edit any of yours to override.</p>\n    <p id="sch-note">${Ht(C())}</p></div>\n    <div class="libctl"><span class="tiny muted">Schedule</span>\n      <div class="seg" id="sch-seg" role="group" aria-label="Schedule source">\n        <button data-schsrc="qr" aria-pressed="${!r.schedAlt}">Quick Reference</button>\n        <button data-schsrc="alt" aria-pressed="${!!r.schedAlt}">Alternative</button></div>\n      <button class="btn ghost" data-newcomp="1">Add a compound</button></div></div>`,
+      htmlEl(
+        `<div class="head"><div><h1>Library</h1>\n    <p>Half-lives are reported figures used to draw the decay curves. Blank means no dependable human number, so no curve is drawn. Edit any of yours to override.</p>\n    <p id="sch-note">${esc(scheduleSummary())}</p></div>\n    <div class="libctl"><span class="tiny muted">Schedule</span>\n      <div class="seg" id="sch-seg" role="group" aria-label="Schedule source">\n        <button data-schsrc="qr" aria-pressed="${!ui.schedAlt}">Quick Reference</button>\n        <button data-schsrc="alt" aria-pressed="${!!ui.schedAlt}">Alternative</button></div>\n      <button class="btn ghost" data-newcomp="1">Add a compound</button></div></div>`,
       ),
     ),
     e.querySelectorAll("#sch-seg button").forEach((t) =>
       t.addEventListener("click", () => {
-        ((r.schedAlt = "alt" === t.dataset.schsrc),
+        ((ui.schedAlt = "alt" === t.dataset.schsrc),
           e
             .querySelectorAll("#sch-seg button")
             .forEach((e) =>
-              e.setAttribute("aria-pressed", String(("alt" === e.dataset.schsrc) === r.schedAlt)),
+              e.setAttribute("aria-pressed", String(("alt" === e.dataset.schsrc) === ui.schedAlt)),
             ),
           e.querySelectorAll("td[data-schn]").forEach((e) => {
-            e.innerHTML = I(e.dataset.schn);
+            e.innerHTML = scheduleCell(e.dataset.schn);
           }),
-          (e.querySelector("#sch-note").textContent = C()));
+          (e.querySelector("#sch-note").textContent = scheduleSummary()));
       }),
     ),
-    d.compounds.length)
+    appData.compounds.length)
   ) {
-    const t = Bt(
+    const t = htmlEl(
         '<div class="panel"><h2>Yours</h2><div style="overflow:auto"><table class="libtbl"><thead><tr>\n      <th>Compound</th><th>Dose</th><th>JIBH</th><th>Schedule</th><th class="num">Half-life</th><th>Units</th><th>Route</th><th class="num">On hand</th><th class="num">Shots</th><th>Notes</th><th></th></tr></thead>\n      <tbody id="tb"></tbody></table></div></div>',
       ),
       n = t.querySelector("#tb");
-    for (const e of bt()) {
-      const t = d.logs.filter((t) => t.compoundId === e.id && "taken" === t.status).length;
+    for (const e of sortCompounds()) {
+      const t = appData.logs.filter((t) => t.compoundId === e.id && "taken" === t.status).length;
       n.appendChild(
-        Bt(
-          `<tr>\n        <td class="libname"><div class="libnm"><span class="chipsq" style="background:${e.color}"></span><span>${q(e.name)}</span></div></td>\n        <td>${k(e.name)}</td>\n        <td>${S(e.name)}</td>\n        ${L(e.name)}\n        <td class="num">${halfLifeOf(e) ? Ht(fe(halfLifeOf(e), 1)) + " h" : "—"}</td>\n        <td>${Ht(xe(e))}</td>\n        <td>${Ht(e.route || "—")}</td>\n        <td class="num">${Ht($e(wt(e.id), e))}</td>\n        <td class="num">${t}</td>\n        <td class="tiny">${Ht(e.notes || "")}</td>\n        <td class="num"><button class="btn ghost sm" data-editcomp="${e.id}">Edit</button></td></tr>`,
+        htmlEl(
+          `<tr>\n        <td class="libname"><div class="libnm"><span class="chipsq" style="background:${e.color}"></span><span>${compoundNameCell(e.name)}</span></div></td>\n        <td>${doseCell(e.name)}</td>\n        <td>${jibhCell(e.name)}</td>\n        ${scheduleTd(e.name)}\n        <td class="num">${halfLifeOf(e) ? esc(fmt(halfLifeOf(e), 1)) + " h" : "—"}</td>\n        <td>${esc(massUnit(e))}</td>\n        <td>${esc(e.route || "—")}</td>\n        <td class="num">${esc(fmtAmount(stockMg(e.id), e))}</td>\n        <td class="num">${t}</td>\n        <td class="tiny">${esc(e.notes || "")}</td>\n        <td class="num"><button class="btn ghost sm" data-editcomp="${e.id}">Edit</button></td></tr>`,
         ),
       );
     }
     e.appendChild(t);
   }
-  const t = Bt(
+  const t = htmlEl(
       '<div class="panel"><h2>Reference half-lives</h2><div style="overflow:auto"><table class="libtbl"><thead><tr>\n    <th>Compound</th><th>Dose</th><th>JIBH</th><th>Schedule</th><th class="num">Reported half-life</th><th>Units</th><th>Usual route</th><th></th></tr></thead><tbody id="rb"></tbody></table></div></div>',
     ),
     n = t.querySelector("#rb");
-  for (const [e, t, a, s] of u) {
-    const o = Te(e);
+  for (const [e, t, a, s] of COMPOUND_LIST) {
+    const o = findCompound(e);
     n.appendChild(
-      Bt(
-        `<tr><td class="libname">${q(e)}</td><td>${k(e)}</td><td>${S(e)}</td>${L(e)}<td class="num">${t ? Ht(fe(t, 1)) + " h" : "—"}</td><td>${"iu" === s ? "IU" : "mg"}</td><td>${Ht(a)}</td>\n      <td class="num">${o ? '<span class="pill done">in yours</span>' : `<button class="btn ghost sm" data-addlib="${Ht(e)}">Add</button>`}</td></tr>`,
+      htmlEl(
+        `<tr><td class="libname">${compoundNameCell(e)}</td><td>${doseCell(e)}</td><td>${jibhCell(e)}</td>${scheduleTd(e)}<td class="num">${t ? esc(fmt(t, 1)) + " h" : "—"}</td><td>${"iu" === s ? "IU" : "mg"}</td><td>${esc(a)}</td>\n      <td class="num">${o ? '<span class="pill done">in yours</span>' : `<button class="btn ghost sm" data-addlib="${esc(e)}">Add</button>`}</td></tr>`,
       ),
     );
   }
   return (e.appendChild(t), e);
 }
-function $a(e) {
+function compoundForm(e) {
   const t = e
-    ? Object.assign({}, Ce(e))
-    : { id: ve(), name: "", halfLife: "", route: "SubQ", color: c[d.compounds.length % c.length], notes: "" };
-  Vt(
+    ? Object.assign({}, compoundById(e))
+    : { id: newId(), name: "", halfLife: "", route: "SubQ", color: COMPOUND_COLORS[appData.compounds.length % COMPOUND_COLORS.length], notes: "" };
+  openForm(
     e ? "Edit compound" : "Add a compound",
-    `\n    <datalist id="lib3">${u.map((e) => `<option value="${Ht(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="c-n">Name</label><input id="c-n" list="lib3" value="${Ht(t.name)}"></div>\n    <div class="fgrid3">\n      <div class="field"><label for="c-h">Half-life (hours)</label><input id="c-h" type="number" step="any" min="0" value="${Ht(t.halfLife)}">\n        <span class="hint">Leave blank to skip the decay curve.</span></div>\n      <div class="field"><label for="c-tp">Time to peak (hours)</label><input id="c-tp" type="number" step="any" min="0" value="${Ht(t.tPeak || "")}" placeholder="${Ht(fe(timeToPeak(Object.assign({}, t, { tPeak: "" })).h, 1))}">\n        <span class="hint">How long after a shot it is highest in the blood. Blank uses ${Ht(timeToPeak(Object.assign({}, t, { tPeak: "" })).note)}.</span></div>\n      <div class="field"><label for="c-base">Measured in</label><select id="c-base">\n        <option value="mg"${"iu" !== t.base ? " selected" : ""}>mg / mcg</option>\n        <option value="iu"${"iu" === t.base ? " selected" : ""}>IU</option></select>\n        <span class="hint">IU compounds stay in IU everywhere — nothing is converted.</span></div>\n      <div class="field"><label for="c-r">Usual route</label><select id="c-r">\n        ${["SubQ", "IM", "Oral", "Nasal", "Topical"].map((e) => `<option${t.route === e ? " selected" : ""}>${e}</option>`).join("")}</select></div>\n      <div class="field"><label for="c-col">Colour</label><select id="c-col">\n        ${c.map((e) => `<option value="${e}"${t.color === e ? " selected" : ""}>${e}</option>`).join("")}</select></div></div>\n    <div class="field"><label for="c-notes">Notes</label><textarea id="c-notes">${Ht(t.notes)}</textarea></div>`,
+    `\n    <datalist id="lib3">${COMPOUND_LIST.map((e) => `<option value="${esc(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="c-n">Name</label><input id="c-n" list="lib3" value="${esc(t.name)}"></div>\n    <div class="fgrid3">\n      <div class="field"><label for="c-h">Half-life (hours)</label><input id="c-h" type="number" step="any" min="0" value="${esc(t.halfLife)}">\n        <span class="hint">Leave blank to skip the decay curve.</span></div>\n      <div class="field"><label for="c-tp">Time to peak (hours)</label><input id="c-tp" type="number" step="any" min="0" value="${esc(t.tPeak || "")}" placeholder="${esc(fmt(timeToPeak(Object.assign({}, t, { tPeak: "" })).h, 1))}">\n        <span class="hint">How long after a shot it is highest in the blood. Blank uses ${esc(timeToPeak(Object.assign({}, t, { tPeak: "" })).note)}.</span></div>\n      <div class="field"><label for="c-base">Measured in</label><select id="c-base">\n        <option value="mg"${"iu" !== t.base ? " selected" : ""}>mg / mcg</option>\n        <option value="iu"${"iu" === t.base ? " selected" : ""}>IU</option></select>\n        <span class="hint">IU compounds stay in IU everywhere — nothing is converted.</span></div>\n      <div class="field"><label for="c-r">Usual route</label><select id="c-r">\n        ${["SubQ", "IM", "Oral", "Nasal", "Topical"].map((e) => `<option${t.route === e ? " selected" : ""}>${e}</option>`).join("")}</select></div>\n      <div class="field"><label for="c-col">Colour</label><select id="c-col">\n        ${COMPOUND_COLORS.map((e) => `<option value="${e}"${t.color === e ? " selected" : ""}>${e}</option>`).join("")}</select></div></div>\n    <div class="field"><label for="c-notes">Notes</label><textarea id="c-notes">${esc(t.notes)}</textarea></div>`,
     (e ? '<button class="btn danger" id="c-del">Delete</button>' : "") +
       '\n     <button class="btn ghost" data-close>Cancel</button><button class="btn" id="c-save">Save</button>',
   );
-  const n = Ot("#modal");
-  (Qt(n.querySelector("#c-n"), Ut),
+  const n = qs("#modal");
+  (comboBox(n.querySelector("#c-n"), compoundNameOptions),
     n.querySelector("#c-n").addEventListener("change", (e) => {
-      const t = u.find((t) => t[0].toLowerCase() === e.target.value.trim().toLowerCase());
+      const t = COMPOUND_LIST.find((t) => t[0].toLowerCase() === e.target.value.trim().toLowerCase());
       t && t[1] && !n.querySelector("#c-h").value && (n.querySelector("#c-h").value = t[1]);
     }),
     n.querySelector("#c-save").addEventListener("click", () => {
@@ -4406,19 +4405,19 @@ function $a(e) {
         (t.base = n.querySelector("#c-base").value),
         (t.color = n.querySelector("#c-col").value),
         (t.notes = n.querySelector("#c-notes").value));
-      const e = d.compounds.findIndex((e) => e.id === t.id);
-      (e >= 0 ? (d.compounds[e] = t) : d.compounds.push(t), s(), Rt(), redrawPage(), toast("Saved."));
+      const e = appData.compounds.findIndex((e) => e.id === t.id);
+      (e >= 0 ? (appData.compounds[e] = t) : appData.compounds.push(t), saveData(), closeForm(), redrawPage(), toast("Saved."));
     }));
   const a = n.querySelector("#c-del");
   a &&
     a.addEventListener("click", () => {
       confirm("Delete this compound? Its protocols, stock and logs go too.") &&
-        ((d.compounds = d.compounds.filter((e) => e.id !== t.id)),
-        (d.protocols = d.protocols.filter((e) => e.compoundId !== t.id)),
-        (d.batches = d.batches.filter((e) => e.compoundId !== t.id)),
-        (d.logs = d.logs.filter((e) => e.compoundId !== t.id)),
-        s(),
-        Rt(),
+        ((appData.compounds = appData.compounds.filter((e) => e.id !== t.id)),
+        (appData.protocols = appData.protocols.filter((e) => e.compoundId !== t.id)),
+        (appData.batches = appData.batches.filter((e) => e.compoundId !== t.id)),
+        (appData.logs = appData.logs.filter((e) => e.compoundId !== t.id)),
+        saveData(),
+        closeForm(),
         redrawPage(),
         toast("Deleted."));
     });
@@ -4429,7 +4428,7 @@ function $a(e) {
   window.addEventListener("online", () => {
     syncUser() || ((reconnectTries = 0), syncReconnect());
   }));
-const Ia = [
+const METRICS = [
   ["weight", "Weight", "lb"],
   ["bf", "Body fat", "%"],
   ["sbp", "Systolic BP", "mmHg"],
@@ -4438,101 +4437,101 @@ const Ia = [
   ["glucose", "Fasting glucose (home meter)", "mmol/L"],
   ["waist", "Waist", "in"],
 ];
-function Ca() {
-  const e = Bt('<div class="stack"></div>');
+function weightView() {
+  const e = htmlEl('<div class="stack"></div>');
   e.appendChild(
-    Bt(
+    htmlEl(
       '<div class="head"><div><h1>Weight</h1>\n    <p>Readings sit alongside the protocol, so a change is easy to line up against what you started or stopped.</p></div>\n    <button class="btn" data-newmetric="1">Add a reading</button></div>',
     ),
   );
-  const t = d.metrics.slice().sort((e, t) => (e.date < t.date ? 1 : -1));
+  const t = appData.metrics.slice().sort((e, t) => (e.date < t.date ? 1 : -1));
   if (!t.length)
     return (
       e.appendChild(
-        Bt(
+        htmlEl(
           '<div class="panel"><div class="empty"><b>Nothing logged yet</b>Weight, blood pressure, pulse, fasting glucose — whatever you actually measure.</div></div>',
         ),
       ),
       e
     );
-  const n = Bt('<div class="grid3"></div>');
-  for (const [e, a, s] of Ia) {
+  const n = htmlEl('<div class="grid3"></div>');
+  for (const [e, a, s] of METRICS) {
     const o = t
       .slice()
       .reverse()
       .filter((t) => "" !== t[e] && null != t[e])
-      .map((t) => be(t[e]));
+      .map((t) => toNum(t[e]));
     if (o.length < 2) continue;
     const i = o[o.length - 1],
       l = i - o[0];
     n.appendChild(
-      Bt(
-        `<div class="panel"><h2>${a}<span class="mono tiny">${fe(i, 1)} ${s}${l ? ` (${l > 0 ? "+" : ""}${fe(l, 1)})` : ""}</span></h2>\n      <div style="padding:10px 12px">${Gt(o, s, 100)}</div></div>`,
+      htmlEl(
+        `<div class="panel"><h2>${a}<span class="mono tiny">${fmt(i, 1)} ${s}${l ? ` (${l > 0 ? "+" : ""}${fmt(l, 1)})` : ""}</span></h2>\n      <div style="padding:10px 12px">${sparkSvg(o, s, 100)}</div></div>`,
       ),
     );
   }
   n.children.length && e.appendChild(n);
-  const a = Bt(
-      `<div class="panel" style="overflow:auto"><table><thead><tr><th>Date</th>\n    ${Ia.map(([, e, t]) => `<th class="num">${e}<div class="tiny muted">${t}</div></th>`).join("")}<th>Notes</th><th></th></tr></thead>\n    <tbody id="tb"></tbody></table></div>`,
+  const a = htmlEl(
+      `<div class="panel" style="overflow:auto"><table><thead><tr><th>Date</th>\n    ${METRICS.map(([, e, t]) => `<th class="num">${e}<div class="tiny muted">${t}</div></th>`).join("")}<th>Notes</th><th></th></tr></thead>\n    <tbody id="tb"></tbody></table></div>`,
     ),
     s = a.querySelector("#tb");
   for (const e of t)
     s.appendChild(
-      Bt(
-        `<tr><td>${Ht(de(e.date))}</td>\n    ${Ia.map(([t]) => `<td class="num">${"" !== e[t] && null != e[t] ? Ht(e[t]) : "—"}</td>`).join("")}\n    <td class="tiny">${Ht(e.notes || "")}</td>\n    <td class="num"><button class="btn ghost sm" data-editmetric="${e.id}">Edit</button></td></tr>`,
+      htmlEl(
+        `<tr><td>${esc(fullDate(e.date))}</td>\n    ${METRICS.map(([t]) => `<td class="num">${"" !== e[t] && null != e[t] ? esc(e[t]) : "—"}</td>`).join("")}\n    <td class="tiny">${esc(e.notes || "")}</td>\n    <td class="num"><button class="btn ghost sm" data-editmetric="${e.id}">Edit</button></td></tr>`,
       ),
     );
   return (e.appendChild(a), e);
 }
-function La(e) {
+function readingForm(e) {
   const t = e
     ? Object.assign(
         {},
-        d.metrics.find((t) => t.id === e),
+        appData.metrics.find((t) => t.id === e),
       )
-    : Object.assign({ id: ve(), date: te(), notes: "" }, ...Ia.map(([e]) => ({ [e]: "" })));
-  Vt(
+    : Object.assign({ id: newId(), date: todayIso(), notes: "" }, ...METRICS.map(([e]) => ({ [e]: "" })));
+  openForm(
     e ? "Edit reading" : "Add a reading",
-    `\n    <div class="field"><label for="m-date">Date</label><input id="m-date" type="date" value="${Ht(t.date)}"></div>\n    <div class="fgrid3">${Ia.map(([e, n, a]) => `<div class="field"><label for="m-${e}">${n} <span class="muted">(${a})</span></label>\n      <input id="m-${e}" type="number" step="any" value="${Ht(t[e])}"></div>`).join("")}</div>\n    <div class="field"><label for="m-n">Notes</label><textarea id="m-n">${Ht(t.notes)}</textarea></div>`,
+    `\n    <div class="field"><label for="m-date">Date</label><input id="m-date" type="date" value="${esc(t.date)}"></div>\n    <div class="fgrid3">${METRICS.map(([e, n, a]) => `<div class="field"><label for="m-${e}">${n} <span class="muted">(${a})</span></label>\n      <input id="m-${e}" type="number" step="any" value="${esc(t[e])}"></div>`).join("")}</div>\n    <div class="field"><label for="m-n">Notes</label><textarea id="m-n">${esc(t.notes)}</textarea></div>`,
     (e ? '<button class="btn danger" id="m-del">Delete</button>' : "") +
       '\n     <button class="btn ghost" data-close>Cancel</button><button class="btn" id="m-save">Save reading</button>',
   );
-  const n = Ot("#modal");
+  const n = qs("#modal");
   n.querySelector("#m-save").addEventListener("click", () => {
-    ((t.date = n.querySelector("#m-date").value || te()),
-      Ia.forEach(([e]) => (t[e] = n.querySelector("#m-" + e).value)),
+    ((t.date = n.querySelector("#m-date").value || todayIso()),
+      METRICS.forEach(([e]) => (t[e] = n.querySelector("#m-" + e).value)),
       (t.notes = n.querySelector("#m-n").value));
-    const e = d.metrics.findIndex((e) => e.id === t.id);
-    (e >= 0 ? (d.metrics[e] = t) : d.metrics.push(t), s(), Rt(), redrawPage(), toast("Reading saved."));
+    const e = appData.metrics.findIndex((e) => e.id === t.id);
+    (e >= 0 ? (appData.metrics[e] = t) : appData.metrics.push(t), saveData(), closeForm(), redrawPage(), toast("Reading saved."));
   });
   const a = n.querySelector("#m-del");
   a &&
     a.addEventListener("click", () => {
-      ((d.metrics = d.metrics.filter((e) => e.id !== t.id)), s(), Rt(), redrawPage());
+      ((appData.metrics = appData.metrics.filter((e) => e.id !== t.id)), saveData(), closeForm(), redrawPage());
     });
 }
-function qa() {
-  const e = Bt('<div class="stack"></div>'),
-    n = d.settings;
+function settingsView() {
+  const e = htmlEl('<div class="stack"></div>'),
+    n = appData.settings;
   (e.appendChild(
-    Bt(
-      `<div class="head"><div><h1>Settings</h1>\n    <p>Saved on this device${"app" === t.kind ? " through Claude" : ""}. Export a backup before you switch device or clear your browser.</p>${appKindLine()}</div></div>`,
+    htmlEl(
+      `<div class="head"><div><h1>Settings</h1>\n    <p>Saved on this device${"app" === store.kind ? " through Claude" : ""}. Export a backup before you switch device or clear your browser.</p>${appKindLine()}</div></div>`,
     ),
   ),
     e.appendChild(
-      Bt(
-        `<div class="panel"><h2>Version</h2><div class="pbody">\n    <div class="big-read" style="font-size:22px">${Ht(o)}</div>\n    <p class="tiny muted" style="margin:6px 0 0">Latest change: ${Ht(i)}.</p>\n    <p class="tiny muted" style="margin:6px 0 0">Compare this against the build number I give you when I hand over a file.\n      If it is older after deploying, the page came from cache — close the app fully and reopen it, or press Ctrl+Shift+R on the PC.</p>\n    <p class="tiny muted" style="margin:10px 0 0">&copy; 2026 Korah Peptides. All rights reserved. This app, its code and its compiled reference tables are protected by copyright. Copying, republishing or reselling them without written permission is not allowed.</p>\n  </div></div>`,
+      htmlEl(
+        `<div class="panel"><h2>Version</h2><div class="pbody">\n    <div class="big-read" style="font-size:22px">${esc(BUILD_STAMP)}</div>\n    <p class="tiny muted" style="margin:6px 0 0">Latest change: ${esc(BUILD_NOTE)}.</p>\n    <p class="tiny muted" style="margin:6px 0 0">Compare this against the build number I give you when I hand over a file.\n      If it is older after deploying, the page came from cache — close the app fully and reopen it, or press Ctrl+Shift+R on the PC.</p>\n    <p class="tiny muted" style="margin:10px 0 0">&copy; 2026 Korah Peptides. All rights reserved. This app, its code and its compiled reference tables are protected by copyright. Copying, republishing or reselling them without written permission is not allowed.</p>\n  </div></div>`,
       ),
     ));
-  const a = Bt(
+  const a = htmlEl(
     `<div class="panel"><h2>Weight tracking</h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 10px">Off by default. Turning it on adds a Weight page and a place to log blood pressure, pulse and fasting glucose alongside it.</p>\n    <label class="check" style="margin:0"><input type="checkbox" id="s-wt" ${n.trackWeight ? "checked" : ""}><span>Track my weight</span></label></div></div>`,
   );
   (a.querySelector("#s-wt").addEventListener("change", (e) => {
-    ((n.trackWeight = e.target.checked), s(), redrawPage());
+    ((n.trackWeight = e.target.checked), saveData(), redrawPage());
   }),
     e.appendChild(a));
-  const r = Bt('<div class="grid2"></div>'),
-    c = Bt(
+  const r = htmlEl('<div class="grid2"></div>'),
+    c = htmlEl(
       `<div class="panel"><h2>Appearance and units</h2><div class="pbody">\n    <div class="field"><label>Theme</label><div class="seg" id="s-theme">\n      ${[
         ["system", "Match system"],
         ["light", "Light"],
@@ -4548,47 +4547,47 @@ function qa() {
         .map(([e, t]) => `<button data-c="${e}" aria-pressed="${n.clock === e}">${t}</button>`)
         .join(
           "",
-        )}</div>\n      <span class="hint">Times read as ${re(new Date())} right now.</span></div>\n    <div class="field"><label for="s-barrel">Syringe you normally use</label><select id="s-barrel">\n      <option value="100"${100 == n.barrel ? " selected" : ""}>1 mL (100 units)</option>\n      <option value="50"${50 == n.barrel ? " selected" : ""}>0.5 mL (50 units)</option>\n      <option value="30"${30 == n.barrel ? " selected" : ""}>0.3 mL (30 units)</option></select></div>\n    <div class="field"><label for="s-name">Name on the Today page</label><input id="s-name" value="${Ht(n.name)}" placeholder="Optional"></div>\n  </div></div>`,
+        )}</div>\n      <span class="hint">Times read as ${clockTime(new Date())} right now.</span></div>\n    <div class="field"><label for="s-barrel">Syringe you normally use</label><select id="s-barrel">\n      <option value="100"${100 == n.barrel ? " selected" : ""}>1 mL (100 units)</option>\n      <option value="50"${50 == n.barrel ? " selected" : ""}>0.5 mL (50 units)</option>\n      <option value="30"${30 == n.barrel ? " selected" : ""}>0.3 mL (30 units)</option></select></div>\n    <div class="field"><label for="s-name">Name on the Today page</label><input id="s-name" value="${esc(n.name)}" placeholder="Optional"></div>\n  </div></div>`,
     );
   (c.querySelectorAll("#s-theme button").forEach((e) =>
     e.addEventListener("click", () => {
-      ((n.theme = e.dataset.t), s(), Ba(), redrawPage());
+      ((n.theme = e.dataset.t), saveData(), applyTheme(), redrawPage());
     }),
   ),
     c.querySelectorAll("#s-clock button").forEach((e) =>
       e.addEventListener("click", () => {
-        ((n.clock = e.dataset.c), s(), redrawPage());
+        ((n.clock = e.dataset.c), saveData(), redrawPage());
       }),
     ),
     c.querySelector("#s-barrel").addEventListener("change", (e) => {
-      ((n.barrel = +e.target.value), s());
+      ((n.barrel = +e.target.value), saveData());
     }),
     c.querySelector("#s-name").addEventListener("input", (e) => {
-      ((n.name = e.target.value), s());
+      ((n.name = e.target.value), saveData());
     }));
-  const u = Bt(
-    `<div class="panel"><h2>Supply you keep on hand</h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 10px">The stock bar is full at this level and starts falling below it. Set it to what you actually like to have in the cupboard.</p>\n    <div class="field"><label for="s-td">Days</label><input id="s-td" type="number" min="7" max="730" step="1" value="${Ht(n.targetDays)}">\n      <span class="hint">${fe(be(n.targetDays) / 30.44, 1)} months. Between 7 and 730 days.</span></div></div></div>`,
+  const u = htmlEl(
+    `<div class="panel"><h2>Supply you keep on hand</h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 10px">The stock bar is full at this level and starts falling below it. Set it to what you actually like to have in the cupboard.</p>\n    <div class="field"><label for="s-td">Days</label><input id="s-td" type="number" min="7" max="730" step="1" value="${esc(n.targetDays)}">\n      <span class="hint">${fmt(toNum(n.targetDays) / 30.44, 1)} months. Between 7 and 730 days.</span></div></div></div>`,
   );
   (u.querySelector("#s-td").addEventListener("change", (e) => {
-    ((n.targetDays = Math.max(7, Math.min(730, be(e.target.value) || 90))), s(), redrawPage(), toast("Target saved."));
+    ((n.targetDays = Math.max(7, Math.min(730, toNum(e.target.value) || 90))), saveData(), redrawPage(), toast("Target saved."));
   }),
     r.appendChild(c),
     r.appendChild(u),
     e.appendChild(r));
-  const p = Bt(
+  const p = htmlEl(
     '<div class="panel"><h2>Backup</h2><div class="pbody">\n    <p class="tiny muted" style="margin:0 0 12px">Export writes one file holding every compound, protocol, batch, shot and reading. Import reads one back and replaces what is here now.</p>\n    <div class="row"><button class="btn" id="d-exp">Export a backup</button>\n      <button class="btn ghost" id="d-csv">Export shots as CSV</button>\n      <button class="btn ghost" id="d-imp">Import a backup</button>\n      <input type="file" id="d-file" accept="application/json" hidden>\n      <button class="btn ghost" id="d-sites">Clear injection sites</button>\n      <button class="btn danger" id="d-wipe">Erase everything</button></div></div></div>',
   );
   return (
     p.querySelector("#d-exp").addEventListener("click", () => {
-      (Ea(
-        `protocol-backup-${te()}.json`,
-        new Blob([JSON.stringify(d, null, 2)], { type: "application/json" }),
+      (download(
+        `protocol-backup-${todayIso()}.json`,
+        new Blob([JSON.stringify(appData, null, 2)], { type: "application/json" }),
       ),
         toast("Backup downloaded."));
     }),
-    p.querySelector("#d-csv").addEventListener("click", Ta),
+    p.querySelector("#d-csv").addEventListener("click", exportCsv),
     p.querySelector("#d-sites").addEventListener("click", () => {
-      const e = d.logs.filter((e) => e.site);
+      const e = appData.logs.filter((e) => e.site);
       e.length
         ? confirm(
             `Remove the injection site from ${e.length} logged shot${1 === e.length ? "" : "s"}? The shots themselves stay. Every site goes back to rested.`,
@@ -4596,74 +4595,74 @@ function qa() {
           (e.forEach((e) => {
             e.site = "";
           }),
-          s(),
+          saveData(),
           redrawPage(),
           toast("Injection sites cleared."))
         : toast("No logged shots have a site on them.");
     }),
     p.querySelector("#d-imp").addEventListener("click", () => p.querySelector("#d-file").click()),
-    p.querySelector("#d-file").addEventListener("change", Pa),
+    p.querySelector("#d-file").addEventListener("change", importBackup),
     p.querySelector("#d-wipe").addEventListener("click", async () => {
       confirm(
         "Erase everything? A copy is kept under Daily copies on this device first, but export too if you want one elsewhere.",
       ) &&
         (await snapBefore("before Erase everything")) &&
-        ((d = l()), s(), redrawPage(), toast("Everything erased."));
+        ((appData = emptyData()), saveData(), redrawPage(), toast("Everything erased."));
     }),
     e.appendChild(p),
     e.appendChild(snapPanel()),
-    SYNC_HERE && e.appendChild(Sa()),
+    SYNC_HERE && e.appendChild(syncPanel()),
     e.appendChild(
-      Bt(
-        `<p class="tiny muted" style="margin:0">Storage in use: ${"app" === t.kind ? "Claude’s artifact storage" : "browser" === t.kind ? "this browser on this device" : "memory only — nothing will survive a reload, so export before you close"}.</p>`,
+      htmlEl(
+        `<p class="tiny muted" style="margin:0">Storage in use: ${"app" === store.kind ? "Claude’s artifact storage" : "browser" === store.kind ? "this browser on this device" : "memory only — nothing will survive a reload, so export before you close"}.</p>`,
       ),
     ),
     e
   );
 }
-function Da() {
-  const e = Bt('<div class="stack howto-wrap"></div>');
+function instructionsView() {
+  const e = htmlEl('<div class="stack howto-wrap"></div>');
   return (
     e.appendChild(
-      Bt(
+      htmlEl(
         `<div class="head"><div><h1>Instructions</h1>\n    <p>${SHARED_SYNC ? "Using more than one device? Start with the sync box below. Then set the app up in this order: add your stock first, then set up your protocols." : "Set the app up in this order: add your stock first, then set up your protocols."}</p></div></div>`,
       ),
     ),
     SHARED_SYNC &&
       e.appendChild(
-        Bt(
+        htmlEl(
           '<div class="panel howto"><h2><span class="hdrwrap"><span class="pill">Optional</span>Sync your phone and computer</span>\n      <button class="btn sm" data-go="settings">Go to Settings</button></h2><div class="pbody">\n    <p class="muted">Sync keeps your phone and your computer showing the same log. It is free. You need an email address, a password, and a passphrase that scrambles your log before it leaves your device, so nobody else can read it.</p>\n    <p><b>1. On the device that already has your data (do this one first)</b></p>\n    <ol>\n      <li>Tap <b>Settings</b> and scroll down to <b>Sync between devices</b>.</li>\n      <li>Tick <b>Turn sync on</b>. More boxes appear underneath.</li>\n      <li>Type your <b>Email</b> and choose a <b>Password</b> (6 characters or more). Leave <b>Stay signed in on this device</b> ticked unless this is a shared or borrowed device.</li>\n      <li>Choose a <b>Passphrase</b> (8 characters or more) and type it again under <b>Repeat passphrase</b>. <b>Write it down somewhere safe.</b> Nobody can recover it for you.</li>\n      <li>Tap <b>Create account</b>. When the tag at the top of the panel says <b>Signed in as</b> and your email, you are set up.</li>\n    </ol>\n    <p><b>2. On your other device (phone or computer)</b></p>\n    <ol>\n      <li>Open this same site address. On a phone, first add it to your home screen so it opens like an app. <b>iPhone:</b> open it in Safari, tap the Share button, then <b>Add to Home Screen</b>. <b>Android:</b> in Chrome tap the menu (three dots), then <b>Install app</b> or <b>Add to Home screen</b>. Then open it from the new icon on your home screen.</li>\n      <li>Tap <b>Settings</b>, scroll to <b>Sync between devices</b> and tick <b>Turn sync on</b>.</li>\n      <li>Type the same email, the same password and the same passphrase.</li>\n      <li>Tap <b>Sign in</b>. Do not tap Create account. Your compounds, stock, protocols and shots appear within a few seconds.</li>\n    </ol>\n    <div class="note warn"><span>⚠</span><span><b>iPhone:</b> Safari and the home-screen app keep separate data. If you have been logging in Safari, set up sync there first (step 1), then sign in from the home-screen app (step 2). If you are starting fresh, do everything inside the home-screen app.</span></div>\n    <p><b>After that</b></p>\n    <ul>\n      <li>Changes sync on their own a few seconds after you save them, and again whenever you reopen the app. Tap <b>Sync now</b> in the same panel to do it straight away.</li>\n      <li>Log on either device. If both changed the same thing, the newer edit wins.</li>\n      <li>If you had already entered things on the second device before signing in, both sets are combined and you may see doubles. Delete the extras.</li>\n      <li>Sync is not a backup. A deletion syncs too, so keep using <b>Export a backup</b> now and then.</li>\n    </ul>\n    <p><b>If something goes wrong</b></p>\n    <ul>\n      <li><b>&ldquo;That passphrase does not open this log&rdquo;:</b> the passphrase must match exactly on every device, capital letters included.</li>\n      <li><b>Forgot your password:</b> type your email and tap <b>Forgot password</b>. A reset link arrives by email. Check your spam or junk folder if you do not see it. It does not change your passphrase.</li>\n      <li><b>Lost your passphrase:</b> on a device that still has your data, type a new passphrase in the <b>Passphrase</b> box, then tap <b>Replace the cloud copy with this device</b> at the bottom of the sync panel. The old synced copy is deleted for good. Then use the new passphrase on your other devices.</li>\n      <li><b>Shared or borrowed device:</b> untick <b>Stay signed in on this device</b>, and tap <b>Sign out</b> when you are done. Sign out also forgets the passphrase on that device.</li>\n    </ul>\n  </div></div>',
         ),
       ),
     e.appendChild(
-      Bt(
+      htmlEl(
         '<div class="panel howto"><h2><span class="hdrwrap"><span class="pill">Step 1</span>Add your stock</span>\n      <button class="btn sm" data-go="stock">Go to Stock</button></h2><div class="pbody">\n    <ol>\n      <li>Tap <b>Stock</b>, then <b>Add stock</b>.</li>\n      <li><b>Compound</b>: type the name or pick it from the list. Anything not on the list is added as your own.</li>\n      <li><b>Strength per vial</b>: the amount printed on the vial label, before it is mixed. Choose IU instead of mg for anything labelled in IU.</li>\n      <li><b>Sealed vials</b>: how many vials you have in this batch, counting any you have already opened.</li>\n      <li>Already have a mixed vial in use? Tick <b>I have a vial already open</b>. One vial moves from Sealed to the open vial. Then fill in how much is left in it, the water you mixed it with (mL) and the date you mixed it.</li>\n      <li>Another strength of the same compound? Tap <b>+ Add another strength</b>.</li>\n      <li>Source, lot, use-by date and a CoA link are optional, under <b>Batch details</b>.</li>\n      <li>Tap <b>Add to stock</b>. Repeat for each compound.</li>\n    </ol>\n    <p class="tiny muted">Optional: on the same page, <b>Add solution</b> under Solutions tracks your bacteriostatic water, so it counts down as you mix vials.</p>\n  </div></div>',
       ),
     ),
     e.appendChild(
-      Bt(
+      htmlEl(
         '<div class="panel howto"><h2><span class="hdrwrap"><span class="pill">Step 2</span>Set up your protocols</span>\n      <button class="btn sm" data-go="protocols">Go to Protocols</button></h2><div class="pbody">\n    <p class="muted">A protocol is one compound, one dose and one schedule.</p>\n    <ol>\n      <li>Tap <b>Protocols</b>, then <b>New protocol</b>.</li>\n      <li><b>Compound</b>: pick one you added to stock in Step 1.</li>\n      <li><b>Dose</b>: the amount per shot and its unit (mcg, mg or IU). Choose the route (SubQ, IM and so on). Time of day is optional and puts your list on Today in order.</li>\n      <li><b>Vial mix</b>: enter the bacteriostatic water in the vial (mL). The line underneath shows how many units to draw on the syringe for your dose. This box stays greyed out until the compound is in stock.</li>\n      <li><b>Schedule</b>: choose how often (every day, certain days, every N days, or days on and off), the start date, and the length in weeks if it has an end.</li>\n      <li>The switches for Blend (several peptides in one vial), Phases (change the dose or schedule partway through, for example daily for 5 weeks then Mon, Wed and Fri) and On/off cycling are optional.</li>\n      <li>Tap <b>Add protocol</b>. Repeat for each compound.</li>\n    </ol>\n  </div></div>',
       ),
     ),
     e.appendChild(
-      Bt(
+      htmlEl(
         '<div class="panel howto"><h2>Why stock comes first</h2><div class="pbody">\n    <p>The draw (how many units to pull on the syringe) is worked out from the vial strength and the water in it, and the stock countdown needs vials to count. A protocol with no vial in stock shows no draw until you add one.</p>\n    <p>Once both steps are done, Today lists what is due. Tap <b>Log</b> when you take a shot and the dose comes off your open vial.</p>\n  </div></div>',
       ),
     ),
     e.appendChild(
-      Bt(
+      htmlEl(
         '<div class="panel howto"><h2><span class="hdrwrap"><span class="pill">Optional</span>Your bloodwork</span>\n      <button class="btn sm" data-labhelp="1">Show me how</button></h2><div class="pbody">\n    <p>The <b>Labs</b> page keeps every blood test in one place, flags results outside the lab\u2019s range and charts each test over time, with your start and stop dates from the shot log marked on it.</p>\n    <p>You don\u2019t have to type it all in. An AI chat app such as Claude, ChatGPT or Gemini can read your lab reports and give you text to paste into the Labs page. <b>Show me how</b> walks you through it.</p>\n  </div></div>',
       ),
     ),
     e.appendChild(
-      Bt(
+      htmlEl(
         `<div class="panel howto"><h2><span class="hdrwrap">Back up your data</span>\n      <button class="btn sm" data-go="settings">Go to Settings</button></h2><div class="pbody">\n    <p class="muted">Your data is saved on this device${SYNC_HERE ? ", and copied to your sync account if you turn sync on" : " only"}. A backup is one file you can keep elsewhere and load back in.</p>\n    <ol>\n      <li>Tap <b>Settings</b> and scroll down to the <b>Backup</b> panel.</li>\n      <li>Tap <b>Export a backup</b>. Your browser downloads one file named <span class="mono">protocol-backup-</span> followed by today&rsquo;s date, ending in <span class="mono">.json</span>. It holds every compound, protocol, batch, shot and reading, plus your settings.</li>\n      <li>Find the file where your browser saves downloads (usually the Downloads folder) and copy it somewhere that is not this device, such as a cloud drive, or email it to yourself.</li>\n    </ol>\n    <p><b>Do this before</b> you switch device, clear your browser data, or tap Erase everything.</p>\n    <p><b>To restore:</b> open Settings, tap <b>Import a backup</b> and pick the <span class="mono">.json</span> file. It replaces everything currently in the app, so only do it when you want what is in the file to win.</p>\n    <p class="tiny muted"><b>Export shots as CSV</b>, in the same panel, makes a shot list for a spreadsheet. It is not a backup and cannot be imported back.</p>\n  </div></div>`,
       ),
     ),
     e
   );
 }
-function Ea(e, t) {
+function download(e, t) {
   const n = document.createElement("a");
   ((n.href = URL.createObjectURL(t)),
     (n.download = e),
@@ -4672,7 +4671,7 @@ function Ea(e, t) {
     n.remove(),
     setTimeout(() => URL.revokeObjectURL(n.href), 2e3));
 }
-function Ta() {
+function exportCsv() {
   const e = [
     [
       "datetime",
@@ -4689,17 +4688,17 @@ function Ta() {
       "notes",
     ],
   ];
-  for (const t of d.logs.slice().sort((e, t) => ((e.at || e.date) < (t.at || t.date) ? -1 : 1))) {
-    const n = Ce(t.compoundId),
-      a = qe(t.batchId);
+  for (const t of appData.logs.slice().sort((e, t) => ((e.at || e.date) < (t.at || t.date) ? -1 : 1))) {
+    const n = compoundById(t.compoundId),
+      a = batchById(t.batchId);
     e.push([
       t.at || t.date,
-      SLN(t.slot),
+      slotLabel(t.slot),
       n ? n.name : "",
       t.doseMg,
       t.units,
       t.purgeUnits || 0,
-      t.site ? Z(t) : "",
+      t.site ? siteLabel(t) : "",
       t.vialMg || (a ? a.vialMg : ""),
       t.bacMl || "",
       a ? a.lot : "",
@@ -4707,15 +4706,15 @@ function Ta() {
       (t.notes || "").replace(/"/g, '""'),
     ]);
   }
-  (Ea(
-    `shot-log-${te()}.csv`,
+  (download(
+    `shot-log-${todayIso()}.csv`,
     new Blob([e.map((e) => e.map((e) => `"${null == e ? "" : e}"`).join(",")).join("\n")], {
       type: "text/csv",
     }),
   ),
     toast("CSV downloaded."));
 }
-function Pa(e) {
+function importBackup(e) {
   const t = e.target.files[0];
   if (!t) return;
   const n = new FileReader();
@@ -4724,11 +4723,11 @@ function Pa(e) {
       const e = JSON.parse(n.result);
       if (!e || !Array.isArray(e.compounds)) throw 0;
       if (!(await snapBefore("before importing a backup"))) return;
-      ((d = Object.assign(l(), e)),
-        (d.settings = Object.assign(l().settings, e.settings || {})),
+      ((appData = Object.assign(emptyData(), e)),
+        (appData.settings = Object.assign(emptyData().settings, e.settings || {})),
         rememberSeen(),
-        s(),
-        Ba(),
+        saveData(),
+        applyTheme(),
         redrawPage(),
         toast("Backup restored."));
     } catch (e) {
@@ -4738,24 +4737,24 @@ function Pa(e) {
     n.readAsText(t),
     (e.target.value = ""));
 }
-function Oa(e, t, n, sl) {
-  const a = Le(e);
+function logOnDate(e, t, n, sl) {
+  const a = protocolById(e);
   if (!a) return;
   sl = a.split ? sl || "am" : "";
-  const o = st(e, t, sl);
-  o && mn(o.id, !0);
-  const i = Ue(a, t),
-    l = new Date(t + "T" + (SLT(a, sl) || ("pm" === sl ? "20:00" : "am" === sl ? "08:00" : "12:00")));
-  d.logs.push({
-    id: ve(),
+  const o = logFor(e, t, sl);
+  o && deleteLog(o.id, !0);
+  const i = doseMath(a, t),
+    l = new Date(t + "T" + (slotTime(a, sl) || ("pm" === sl ? "20:00" : "am" === sl ? "08:00" : "12:00")));
+  appData.logs.push({
+    id: newId(),
     protocolId: e,
     compoundId: a.compoundId,
     date: t,
     at: l.toISOString(),
     status: n,
-    doseMg: "taken" === n ? ye(i.doseMg, 6) : 0,
-    units: "taken" === n ? ye(i.units, 2) : 0,
-    volMl: ye(i.volMl, 4),
+    doseMg: "taken" === n ? roundTo(i.doseMg, 6) : 0,
+    units: "taken" === n ? roundTo(i.units, 2) : 0,
+    volMl: roundTo(i.volMl, 4),
     purgeUnits: 0,
     purgeMg: 0,
     batchId: "taken" === n && i.batch ? i.batch.id : "",
@@ -4763,16 +4762,16 @@ function Oa(e, t, n, sl) {
     notes: "",
     ...(sl ? { slot: sl } : {}),
   });
-  const r = d.logs[d.logs.length - 1];
+  const r = appData.logs[appData.logs.length - 1];
   let c = null;
   return (
-    r.batchId && (vn(r), (c = It(r.batchId, r.doseMg)), c && (r.opened = c)),
-    s(),
-    yn(a, r, n) || (c ? bn(r) : "")
+    r.batchId && (fillVialFromBatch(r), (c = takeFromStock(r.batchId, r.doseMg)), c && (r.opened = c)),
+    saveData(),
+    noUnitsNote(a, r, n) || (c ? newVialNote(r) : "")
   );
 }
-function Ba() {
-  const e = d.settings.theme,
+function applyTheme() {
+  const e = appData.settings.theme,
     t =
       "dark" === e ||
       ("system" === e && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -4784,83 +4783,83 @@ function Ba() {
   );
   if (!t) return;
   const n = t.dataset;
-  if (n.hasOwnProperty("close")) Rt();
-  else if ((e.preventDefault(), n.go)) ((r.tab = n.go), "log" === n.go && (r.logDraft = null), redrawPage());
+  if (n.hasOwnProperty("close")) closeForm();
+  else if ((e.preventDefault(), n.go)) ((ui.tab = n.go), "log" === n.go && (ui.logDraft = null), redrawPage());
   else if (n.logp) {
-    const e = gn(n.logp, "taken", n.slot);
+    const e = quickLog(n.logp, "taken", n.slot);
     (redrawPage(), toast(e || "Logged."));
-  } else if (n.missp) (gn(n.missp, "missed", n.slot), redrawPage(), toast("Marked as missed."));
+  } else if (n.missp) (quickLog(n.missp, "missed", n.slot), redrawPage(), toast("Marked as missed."));
   else if (n.undop) {
-    const e = st(n.undop, te(), n.slot);
-    (e && mn(e.id), redrawPage(), toast("Cleared."));
-  } else if (n.logfor) ((r.logDraft = un(n.logfor, n.slot)), (r.tab = "log"), redrawPage());
-  else if (n.hasOwnProperty("newproto")) Mn();
-  else if (n.editproto) Mn(n.editproto);
+    const e = logFor(n.undop, todayIso(), n.slot);
+    (e && deleteLog(e.id), redrawPage(), toast("Cleared."));
+  } else if (n.logfor) ((ui.logDraft = newLogDraft(n.logfor, n.slot)), (ui.tab = "log"), redrawPage());
+  else if (n.hasOwnProperty("newproto")) protocolForm();
+  else if (n.editproto) protocolForm(n.editproto);
   else if (n.pauseproto) {
-    const e = Le(n.pauseproto);
+    const e = protocolById(n.pauseproto);
     e &&
       ((e.active = !e.active),
-      s(),
+      saveData(),
       redrawPage(),
       toast(
         e.active
-          ? `${pt(e.compoundId)} resumed.`
-          : `${pt(e.compoundId)} paused. It is off Today until you resume it.`,
+          ? `${compoundName(e.compoundId)} resumed.`
+          : `${compoundName(e.compoundId)} paused. It is off Today until you resume it.`,
       ));
-  } else if (n.hasOwnProperty("newbatch")) An();
-  else if (n.editbatch) An(n.editbatch);
-  else if (n.hasOwnProperty("newsol")) In();
-  else if (n.editsol) In(n.editsol);
-  else if (n.hasOwnProperty("newsup")) Cn();
-  else if (n.editsup) Cn(n.editsup);
-  else if (n.calday) ((r.calDay = n.calday), redrawPage());
+  } else if (n.hasOwnProperty("newbatch")) batchForm();
+  else if (n.editbatch) batchForm(n.editbatch);
+  else if (n.hasOwnProperty("newsol")) solutionForm();
+  else if (n.editsol) solutionForm(n.editsol);
+  else if (n.hasOwnProperty("newsup")) supplyForm();
+  else if (n.editsup) supplyForm(n.editsup);
+  else if (n.calday) ((ui.calDay = n.calday), redrawPage());
   else if (n.mark) {
-    const e = Oa(n.p, n.d, n.mark, n.slot);
+    const e = logOnDate(n.p, n.d, n.mark, n.slot);
     (redrawPage(), e && toast(e));
   } else
     n.clear
-      ? (mn(n.clear), redrawPage())
+      ? (deleteLog(n.clear), redrawPage())
       : n.hasOwnProperty("newcomp")
-        ? $a()
+        ? compoundForm()
         : n.editcomp
-          ? $a(n.editcomp)
+          ? compoundForm(n.editcomp)
           : n.addlib
-            ? (Pe(n.addlib), s(), redrawPage(), toast(`${n.addlib} added.`))
+            ? (findOrAddCompound(n.addlib), saveData(), redrawPage(), toast(`${n.addlib} added.`))
             : n.hasOwnProperty("newmetric")
-              ? La()
-              : n.editmetric && La(n.editmetric);
+              ? readingForm()
+              : n.editmetric && readingForm(n.editmetric);
 }),
   window.matchMedia &&
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-      "system" === d.settings.theme && (Ba(), redrawPage());
+      "system" === appData.settings.theme && (applyTheme(), redrawPage());
     }));
-const Ha = {
-  instructions: Da,
-  today: rn,
-  log: pn,
-  protocols: kn,
-  stock: xn,
-  history: Ln,
-  labels: Bn,
-  tools: Nn,
-  library: Aa,
-  weight: Ca,
+const PAGES = {
+  instructions: instructionsView,
+  today: todayView,
+  log: logView,
+  protocols: protocolsView,
+  stock: stockView,
+  history: historyView,
+  labels: labelsView,
+  tools: toolsView,
+  library: libraryView,
+  weight: weightView,
   labs: labView,
   // b80: Insights code is left out of the community file entirely (page.html), so no reference to it there.
   ...(COMMUNITY ? {} : { insights: insView }),
-  settings: qa,
+  settings: settingsView,
 };
 function redrawPage(k) {
   const y0 = window.scrollY;
   if (k) {
     const a0 = document.activeElement;
-    if (a0 && /^(INPUT|SELECT|TEXTAREA)$/.test(a0.tagName) && Ot("#view").contains(a0)) return;
+    if (a0 && /^(INPUT|SELECT|TEXTAREA)$/.test(a0.tagName) && qs("#view").contains(a0)) return;
   }
-  ("weight" !== r.tab || d.settings.trackWeight || (r.tab = "today"), dn());
-  const e = Ot("#view"),
-    tab0 = r.tab,
+  ("weight" !== ui.tab || appData.settings.trackWeight || (ui.tab = "today"), drawRail());
+  const e = qs("#view"),
+    tab0 = ui.tab,
     keep = k ? findUnsaved(e) : [];
-  ((e.innerHTML = ""), e.appendChild((Ha[r.tab] || rn)()), keep.length && r.tab === tab0 && restoreUnsaved(e, keep));
+  ((e.innerHTML = ""), e.appendChild((PAGES[ui.tab] || todayView)()), keep.length && ui.tab === tab0 && restoreUnsaved(e, keep));
   window.scrollTo({ top: k ? y0 : 0 });
 }
 // b77: a background redraw (redrawPage(1)) rebuilds the page from saved data. findUnsaved() notes every box on the page
@@ -4907,19 +4906,19 @@ function restoreUnsaved(root, keep) {
 }
 !(async function () {
   try {
-    const e = await t.get();
+    const e = await store.get();
     if (e) {
       const t = JSON.parse(e);
-      ((d = Object.assign(l(), t)), (d.settings = Object.assign(l().settings, t.settings || {})));
+      ((appData = Object.assign(emptyData(), t)), (appData.settings = Object.assign(emptyData().settings, t.settings || {})));
     }
   } catch (e) {}
-  const e = j();
+  const e = migrateSites();
   (rememberSeen(),
-    Ba(),
+    applyTheme(),
     redrawPage(),
-    e && s(),
+    e && saveData(),
     syncReconnect(),
-    "memory" === t.kind && toast("This copy cannot save. Export a backup before you close it."));
+    "memory" === store.kind && toast("This copy cannot save. Export a backup before you close it."));
   // b77: the sign-in password is no longer kept on the device (Firebase keeps the session itself).
   try {
     localStorage.removeItem("protocol:pw");

@@ -31,8 +31,8 @@ var INS_MODELS = [
   ["claude-sonnet-5-5", "Sonnet: more thorough, costs more"],
 ];
 function insCfg() {
-  d.settings.ai = d.settings.ai || { url: "", key: "", context: "" };
-  return d.settings.ai;
+  appData.settings.ai = appData.settings.ai || { url: "", key: "", context: "" };
+  return appData.settings.ai;
 }
 function insModel() {
   var m = insCfg().model;
@@ -47,7 +47,7 @@ function insReady() {
   return !!(String(c.url || "").trim() && String(c.key || "").trim());
 }
 function insList(kind) {
-  return (d.insights || [])
+  return (appData.insights || [])
     .filter(function (x) {
       return x && x.kind === kind;
     })
@@ -62,14 +62,14 @@ function insLogDate(l) {
   return l.date || String(l.at || "").slice(0, 10);
 }
 function insDow(dt) {
-  return me[ee(dt).getDay()] + " " + dt;
+  return WEEKDAYS[parseDate(dt).getDay()] + " " + dt;
 }
 
 /* First day of the run the compound is on now: shots with gaps of 21 days or less count as one run. */
 function insRunStart(cid, end) {
   var ds = Array.from(
     new Set(
-      (d.logs || [])
+      (appData.logs || [])
         .filter(function (l) {
           return l.compoundId === cid && l.status === "taken";
         })
@@ -81,25 +81,25 @@ function insRunStart(cid, end) {
   ).sort();
   if (!ds.length) return null;
   var i = ds.length - 1;
-  if (ae(ds[i], end) > 21) return null;
-  while (i > 0 && ae(ds[i - 1], ds[i]) <= 21) i--;
+  if (daysBetween(ds[i], end) > 21) return null;
+  while (i > 0 && daysBetween(ds[i - 1], ds[i]) <= 21) i--;
   return ds[i];
 }
 
 /* Everything the app can count by itself. The AI is told to use these numbers as they are. */
 function insStats(start, end) {
-  var today = te(),
+  var today = todayIso(),
     days = [];
-  for (var x = start; x <= end; x = ne(x, 1)) days.push(x);
+  for (var x = start; x <= end; x = addDays(x, 1)) days.push(x);
   var inPer = function (l) {
     var dt = insLogDate(l);
     return dt >= start && dt <= end;
   };
-  var protos = gt(
-    (d.protocols || []).filter(function (p) {
+  var protos = sortProtocols(
+    (appData.protocols || []).filter(function (p) {
       return (
         p.active ||
-        (d.logs || []).some(function (l) {
+        (appData.logs || []).some(function (l) {
           return l.protocolId === p.id && inPer(l);
         })
       );
@@ -109,15 +109,15 @@ function insStats(start, end) {
     tot = { sched: 0, taken: 0 },
     seen = {};
   protos.forEach(function (p) {
-    var c = Ce(p.compoundId);
+    var c = compoundById(p.compoundId);
     if (!c) return;
     var sched = 0,
       taken = 0,
       missed = [];
     days.forEach(function (dy) {
-      if (!Ye(p, dy)) return;
-      SL(p, dy).forEach(function (sl) {
-        var g = st(p.id, dy, sl),
+      if (!isDue(p, dy)) return;
+      doseSlots(p, dy).forEach(function (sl) {
+        var g = logFor(p.id, dy, sl),
           ok = g && g.status === "taken";
         if (dy === today && !g) return; // still to come today
         sched++;
@@ -125,14 +125,14 @@ function insStats(start, end) {
         else missed.push(insDow(dy) + (sl ? " " + sl.toUpperCase() : ""));
       });
     });
-    var extra = (d.logs || []).filter(function (l) {
-      return l.protocolId === p.id && l.status === "taken" && inPer(l) && !Ye(p, insLogDate(l));
+    var extra = (appData.logs || []).filter(function (l) {
+      return l.protocolId === p.id && l.status === "taken" && inPer(l) && !isDue(p, insLogDate(l));
     }).length;
-    var g = Ge(p, end),
+    var g = doseOn(p, end),
       run = insRunStart(c.id, end),
       from = run || p.startDate || null;
     var name = c.name;
-    if (seen[name.toLowerCase()]) name = c.name + " (" + fe(be(g.dose), 3) + " " + insUnit(g.unit) + ")";
+    if (seen[name.toLowerCase()]) name = c.name + " (" + fmt(toNum(g.dose), 3) + " " + insUnit(g.unit) + ")";
     seen[name.toLowerCase()] = 1;
     tot.sched += sched;
     tot.taken += taken;
@@ -142,13 +142,13 @@ function insStats(start, end) {
       name: name,
       route: p.route || c.route || "SubQ",
       active: !!p.active,
-      dose: fe(be(g.dose), 3) + " " + insUnit(g.unit) + (p.split ? " per shot, AM + PM" : ""),
-      schedule: _e(p),
+      dose: fmt(toNum(g.dose), 3) + " " + insUnit(g.unit) + (p.split ? " per shot, AM + PM" : ""),
+      schedule: scheduleText(p),
       phase: g.of ? "phase " + g.phase + " of " + g.of + (g.holding ? ", held" : "") : "",
-      blend: Sn(p, g.dose, g.unit) || "",
-      resting: !!(p.cycling && !Re(p, end).on),
+      blend: blendText(p, g.dose, g.unit) || "",
+      resting: !!(p.cycling && !cyclePosition(p, end).on),
       runStart: from,
-      week: from && from <= end ? Math.floor(ae(from, end) / 7) + 1 : null,
+      week: from && from <= end ? Math.floor(daysBetween(from, end) / 7) + 1 : null,
       sched: sched,
       taken: taken,
       extra: extra,
@@ -232,16 +232,16 @@ function insLabFlags(list) {
       sev: bad ? "high" : "medium",
       kind: "lab",
       title: x.test,
-      text: x.test + " " + x.value + (x.unit ? " " + x.unit : "") + " on " + de(x.date) + ": " + why + ".",
+      text: x.test + " " + x.value + (x.unit ? " " + x.unit : "") + " on " + fullDate(x.date) + ": " + why + ".",
     };
   });
 }
 /* Home readings over the 90 days to the end date. Only rises are flagged. */
 function insHomeFlags(end) {
   var out = [],
-    ms = (d.metrics || [])
+    ms = (appData.metrics || [])
       .filter(function (m) {
-        return m.date <= end && m.date >= ne(end, -90);
+        return m.date <= end && m.date >= addDays(end, -90);
       })
       .sort(function (a, b) {
         return a.date < b.date ? -1 : 1;
@@ -282,26 +282,26 @@ function insHomeFlags(end) {
       if (la - fa >= rl[3])
         parts.push(
           "up from about " +
-            fe(fa, 1) +
+            fmt(fa, 1) +
             " to " +
-            fe(la, 1) +
+            fmt(la, 1) +
             " " +
             rl[2] +
             " between " +
-            de(first[0].date) +
+            fullDate(first[0].date) +
             " and " +
-            de(last[last.length - 1].date),
+            fullDate(last[last.length - 1].date),
         );
     }
     if (rl[4] !== null && la >= rl[4])
-      parts.push("recent average " + fe(la, 1) + " " + rl[2] + " is at or above " + rl[4] + ", " + rl[5]);
+      parts.push("recent average " + fmt(la, 1) + " " + rl[2] + " is at or above " + rl[4] + ", " + rl[5]);
     if (!parts.length) return;
     var f = { sev: "medium", kind: "home", title: rl[1], text: rl[1] + ": " + parts.join("; ") + "." };
     if (rl[0] === "glucose") {
       var lab = insLabGlucose(end);
       if (lab) {
         f.text +=
-          " Your latest lab fasting glucose was " + lab.value + " on " + de(lab.date) + " (" + lab.status.toLowerCase() + ").";
+          " Your latest lab fasting glucose was " + lab.value + " on " + fullDate(lab.date) + " (" + lab.status.toLowerCase() + ").";
         f.note =
           "Home meters can read up to 15% off, and the diabetes cut-offs only apply to lab results, so the lab value is the one to go by." +
           (lab.ok
@@ -315,12 +315,12 @@ function insHomeFlags(end) {
     out.push(f);
   });
   var lastDate = ms[ms.length - 1].date;
-  if (ae(lastDate, end) > 7)
+  if (daysBetween(lastDate, end) > 7)
     out.push({
       sev: "low",
       kind: "data",
       title: "Home readings",
-      text: "No home readings logged since " + de(lastDate) + ", so recent trends cannot be checked.",
+      text: "No home readings logged since " + fullDate(lastDate) + ", so recent trends cannot be checked.",
       note: "Log weight and fasting glucose at least once a week so these reports can spot changes early.",
     });
   return out;
@@ -403,12 +403,12 @@ function insProtoFlags(S, labSnap) {
     inRows[r0.cid] = 1;
   });
   var loose = {};
-  (d.logs || []).forEach(function (l) {
+  (appData.logs || []).forEach(function (l) {
     var dt = insLogDate(l);
-    if (l.status === "taken" && l.compoundId && !inRows[l.compoundId] && dt <= S.end && dt > ne(S.end, -21))
+    if (l.status === "taken" && l.compoundId && !inRows[l.compoundId] && dt <= S.end && dt > addDays(S.end, -21))
       loose[l.compoundId] = 1;
   });
-  var names = Object.keys(loose).map(pt).filter(Boolean).sort();
+  var names = Object.keys(loose).map(compoundName).filter(Boolean).sort();
   if (names.length)
     f.push({
       sev: "low",
@@ -477,7 +477,7 @@ function insStage(r0) {
   return "maintenance";
 }
 function insGuideKey(r0) {
-  return [pt(r0.cid).toLowerCase(), r0.dose, r0.route, r0.blend || "", insStage(r0)].join("|");
+  return [compoundName(r0.cid).toLowerCase(), r0.dose, r0.route, r0.blend || "", insStage(r0)].join("|");
 }
 function insGuideId(key) {
   var h = 0;
@@ -487,7 +487,7 @@ function insGuideId(key) {
 function insGuideFor(r0) {
   var key = insGuideKey(r0);
   return (
-    (d.insGuides || []).find(function (g) {
+    (appData.insGuides || []).find(function (g) {
       return g.key === key;
     }) || null
   );
@@ -765,7 +765,7 @@ async function insRunProtocol(start, end, id) {
   var prev = insList("protocol").filter(function (x) {
     return x.id !== id && x.end < end;
   })[0];
-  var logs = (d.logs || []).filter(S.inPer);
+  var logs = (appData.logs || []).filter(S.inPer);
   var labSnap = insLabSnap(end, true),
     flags = insProtoFlags(S, labSnap),
     R = insProtoRating(S.pct, flags);
@@ -781,7 +781,7 @@ async function insRunProtocol(start, end, id) {
   });
   var payload = {
     about_me: insCfg().context || "(not given)",
-    period: { from: start, to: end, days: S.days, today: te() },
+    period: { from: start, to: end, days: S.days, today: todayIso() },
     must_cover_flags: flags
       .filter(function (f) {
         return !f.note;
@@ -793,7 +793,7 @@ async function insRunProtocol(start, end, id) {
     compound_guides_needed: need.map(function (x) {
       return {
         ref: x.ref,
-        compound: pt(x.r0.cid),
+        compound: compoundName(x.r0.cid),
         dose: x.r0.dose,
         route: x.r0.route,
         blend_per_shot: x.r0.blend || undefined,
@@ -827,25 +827,25 @@ async function insRunProtocol(start, end, id) {
         return !l.protocolId && l.status === "taken";
       })
       .map(function (l) {
-        return { date: insLogDate(l), compound: pt(l.compoundId), dose: $e(be(l.doseMg), Ce(l.compoundId)) };
+        return { date: insLogDate(l), compound: compoundName(l.compoundId), dose: fmtAmount(toNum(l.doseMg), compoundById(l.compoundId)) };
       }),
     shot_notes: logs
       .filter(function (l) {
         return l.notes;
       })
       .map(function (l) {
-        return { date: insLogDate(l), compound: pt(l.compoundId), note: l.notes };
+        return { date: insLogDate(l), compound: compoundName(l.compoundId), note: l.notes };
       }),
-    home_readings: (d.metrics || [])
+    home_readings: (appData.metrics || [])
       .filter(function (m) {
-        return m.date <= end && m.date >= ne(end, -90);
+        return m.date <= end && m.date >= addDays(end, -90);
       })
       .sort(function (a, b) {
         return a.date < b.date ? -1 : 1;
       })
       .map(function (m) {
         var o = { date: m.date };
-        Ia.forEach(function (f) {
+        METRICS.forEach(function (f) {
           if (m[f[0]] !== "" && m[f[0]] != null) o[f[1] + " (" + f[2] + ")"] = m[f[0]];
         });
         if (m.notes) o.notes = m.notes;
@@ -861,7 +861,7 @@ async function insRunProtocol(start, end, id) {
           .slice(-1)[0] || {}
       ).date || "none",
     starts_and_stops_last_120_days: labEvents().filter(function (e) {
-      return e.date <= end && e.date >= ne(end, -120);
+      return e.date <= end && e.date >= addDays(end, -120);
     }),
     previous_report: prev
       ? {
@@ -877,16 +877,16 @@ async function insRunProtocol(start, end, id) {
   var res = await insCall(
     INS_PROTO_SYS,
     "Review my protocol for " +
-      de(start) +
+      fullDate(start) +
       " to " +
-      de(end) +
+      fullDate(end) +
       ". My log:\n\n" +
       JSON.stringify(payload, null, 1),
     INS_PROTO_TOOL,
     8000,
   );
   // Save the new write-ups, then copy each compound's write-up into the report so it never changes later.
-  d.insGuides = d.insGuides || [];
+  appData.insGuides = appData.insGuides || [];
   insArr(res.out.compound_guides).forEach(function (g) {
     var x = need.find(function (n) {
       return (
@@ -899,10 +899,10 @@ async function insRunProtocol(start, end, id) {
     if (!x || !g.expect) return;
     var key = insGuideKey(x.r0);
     if (insGuideFor(x.r0)) return;
-    d.insGuides.push({
+    appData.insGuides.push({
       id: insGuideId(key),
       key: key,
-      compound: pt(x.r0.cid),
+      compound: compoundName(x.r0.cid),
       dose: x.r0.dose,
       stage: insStage(x.r0),
       expect: String(g.expect),
@@ -916,7 +916,7 @@ async function insRunProtocol(start, end, id) {
     return { name: r0.name, stage: insStage(r0), expect: g ? g.expect : "", watch: g ? g.watch : [] };
   });
   return insSave({
-    id: id || "ins-" + ve(),
+    id: id || "ins-" + newId(),
     kind: "protocol",
     guides: guides,
     start: start,
@@ -984,11 +984,11 @@ async function insRunLabs(drawId, id) {
       };
     })
     .filter(Boolean);
-  var S = insStats(ne(te(), -13), te());
+  var S = insStats(addDays(todayIso(), -13), todayIso());
   var payload = {
     about_me: insCfg().context || "(not given)",
     focus_draw: focus.date,
-    today: te(),
+    today: todayIso(),
     draws: upto.map(function (x) {
       return {
         date: x.date,
@@ -1043,14 +1043,14 @@ async function insRunLabs(drawId, id) {
   var res = await insCall(
     INS_LAB_SYS,
     "Analyse my labs, focusing on the draw of " +
-      de(focus.date) +
+      fullDate(focus.date) +
       ". My data:\n\n" +
       JSON.stringify(payload, null, 1),
     INS_LAB_TOOL,
     8000,
   );
   return insSave({
-    id: id || "ins-" + ve(),
+    id: id || "ins-" + newId(),
     kind: "lab",
     start: upto[0].date,
     end: focus.date,
@@ -1067,14 +1067,14 @@ async function insRunLabs(drawId, id) {
 
 var INS_KEEP = 10;
 function insSave(rep) {
-  d.insights = d.insights || [];
-  var ix = d.insights.findIndex(function (x) {
+  appData.insights = appData.insights || [];
+  var ix = appData.insights.findIndex(function (x) {
     return x.id === rep.id;
   });
-  ix >= 0 ? (d.insights[ix] = rep) : d.insights.push(rep);
+  ix >= 0 ? (appData.insights[ix] = rep) : appData.insights.push(rep);
   // b77: keep the newest INS_KEEP reports of each kind; older ones are dropped (and the drop syncs).
   var seen = {};
-  d.insights = d.insights
+  appData.insights = appData.insights
     .slice()
     .sort(function (a, b) {
       return (b.created || 0) - (a.created || 0);
@@ -1085,7 +1085,7 @@ function insSave(rep) {
       return seen[k] <= INS_KEEP || x.id === rep.id;
     })
     .reverse();
-  s();
+  saveData();
   return rep;
 }
 
@@ -1096,9 +1096,9 @@ async function insGo(btn, fn) {
   btn.textContent = "Writing… about a minute";
   try {
     var rep = await fn();
-    Rt();
-    r.tab = "insights";
-    r.insOpen = rep.id;
+    closeForm();
+    ui.tab = "insights";
+    ui.insOpen = rep.id;
     redrawPage();
     toast("Report ready.");
   } catch (e) {
@@ -1111,18 +1111,18 @@ async function insGo(btn, fn) {
 /* ---------- views ---------- */
 function insPill(kind, map) {
   var x = map[kind];
-  return x ? '<span class="pill ' + x[1] + '">' + Ht(x[0]) + "</span>" : "";
+  return x ? '<span class="pill ' + x[1] + '">' + esc(x[0]) + "</span>" : "";
 }
 function insRange(a, b) {
-  var A = ee(a),
-    B = ee(b);
+  var A = parseDate(a),
+    B = parseDate(b);
   return (
-    le[A.getMonth()] +
+    MONTHS[A.getMonth()] +
     " " +
     A.getDate() +
     (A.getFullYear() !== B.getFullYear() ? ", " + A.getFullYear() : "") +
     " – " +
-    (A.getMonth() === B.getMonth() && A.getFullYear() === B.getFullYear() ? "" : le[B.getMonth()] + " ") +
+    (A.getMonth() === B.getMonth() && A.getFullYear() === B.getFullYear() ? "" : MONTHS[B.getMonth()] + " ") +
     B.getDate() +
     ", " +
     B.getFullYear()
@@ -1133,19 +1133,19 @@ function insBarCls(p) {
 }
 
 function insView() {
-  r.insView = r.insView || "protocol";
-  if (r.insOpen) {
-    var rep = (d.insights || []).find(function (x) {
-      return x.id === r.insOpen;
+  ui.insView = ui.insView || "protocol";
+  if (ui.insOpen) {
+    var rep = (appData.insights || []).find(function (x) {
+      return x.id === ui.insOpen;
     });
     if (rep) return insDetail(rep);
-    r.insOpen = null;
+    ui.insOpen = null;
   }
-  var el = Bt('<div class="stack"></div>'),
-    v = r.insView,
+  var el = htmlEl('<div class="stack"></div>'),
+    v = ui.insView,
     ready = insReady();
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="head"><div><h1>Insights</h1><p>Reviews of your log and your labs, written by Claude from what you have logged here.</p></div>' +
         (ready
           ? '<button class="btn" id="ins-new">' + (v === "lab" ? "Analyse labs" : "New report") + "</button>"
@@ -1160,7 +1160,7 @@ function insView() {
   el.querySelector("#ins-new").addEventListener("click", function () {
     v === "lab" ? insLabForm() : insProtoForm();
   });
-  var seg = Bt(
+  var seg = htmlEl(
     '<div class="seg"><button data-iv="protocol" aria-pressed="' +
       (v === "protocol") +
       '">Protocol reports</button><button data-iv="lab" aria-pressed="' +
@@ -1169,7 +1169,7 @@ function insView() {
   );
   seg.querySelectorAll("button").forEach(function (b) {
     b.addEventListener("click", function () {
-      r.insView = b.dataset.iv;
+      ui.insView = b.dataset.iv;
       redrawPage();
     });
   });
@@ -1177,7 +1177,7 @@ function insView() {
   var list = insList(v);
   if (!list.length) {
     el.appendChild(
-      Bt(
+      htmlEl(
         '<div class="panel"><div class="empty"><b>' +
           (v === "lab" ? "No lab analyses yet" : "No reports yet") +
           "</b>" +
@@ -1193,7 +1193,7 @@ function insView() {
       v === "lab" ? insLabForm() : insProtoForm();
     });
   } else {
-    var wrap = Bt('<div class="stack" style="gap:12px"></div>');
+    var wrap = htmlEl('<div class="stack" style="gap:12px"></div>');
     list.forEach(function (rep) {
       var a = insFix(rep.ai),
         n = a.recommendations.length;
@@ -1210,17 +1210,17 @@ function insView() {
             " recommendation" +
             (n === 1 ? "" : "s");
       wrap.appendChild(
-        Bt(
+        htmlEl(
           '<button class="ins-card" data-insopen="' +
-            Ht(rep.id) +
+            esc(rep.id) +
             '"><div class="ins-top"><div><div class="ins-per">' +
-            Ht(rep.kind === "lab" ? "Draw of " + de(rep.end) : insRange(rep.start, rep.end)) +
+            esc(rep.kind === "lab" ? "Draw of " + fullDate(rep.end) : insRange(rep.start, rep.end)) +
             '</div><div class="tiny muted">Written ' +
-            Ht(de(_(new Date(rep.created)))) +
+            esc(fullDate(isoDate(new Date(rep.created)))) +
             "</div></div>" +
             insPill(rep.rating || a.rating, INS_RATING) +
             '</div><div class="ins-hl">' +
-            Ht(a.headline || "") +
+            esc(a.headline || "") +
             '</div><div class="ins-foot">' +
             foot +
             "</div></button>",
@@ -1230,7 +1230,7 @@ function insView() {
     wrap.addEventListener("click", function (e) {
       var b = e.target.closest("[data-insopen]");
       if (b) {
-        r.insOpen = b.dataset.insopen;
+        ui.insOpen = b.dataset.insopen;
         redrawPage();
       }
     });
@@ -1242,7 +1242,7 @@ function insView() {
 
 function insSetup(open) {
   var c = insCfg();
-  var p = Bt(
+  var p = htmlEl(
     '<details class="panel ins-setup"' +
       (open ? " open" : "") +
       '><summary>AI connection and about me</summary><div class="pbody">' +
@@ -1250,13 +1250,13 @@ function insSetup(open) {
         ? '<p class="tiny muted" style="margin:0 0 12px">One-time setup. Your log goes to your own Cloudflare Worker, which passes it to Claude and sends the report back. The setup syncs to your other devices.</p>'
         : "") +
       '<div class="field"><label for="ins-url">Worker address</label><input id="ins-url" type="url" placeholder="https://protocol-ai.yourname.workers.dev" value="' +
-      Ht(c.url) +
+      esc(c.url) +
       '"></div>' +
       '<div class="field"><label for="ins-key">Access key</label><input id="ins-key" type="password" autocomplete="off" value="' +
-      Ht(c.key) +
+      esc(c.key) +
       '"><span class="hint">The APP_KEY you saved in the Worker.</span></div>' +
       '<div class="field"><label for="ins-ctx">About me</label><textarea id="ins-ctx" rows="5" placeholder="What Claude should always know: prescriptions, conditions, goals, anything that changes what counts as normal for you.">' +
-      Ht(c.context) +
+      esc(c.context) +
       "</textarea>" +
       '<span class="hint">Sent with every report. Example: "On prescribed TRT, so low LH and FSH are expected. Goals: fat loss, joint repair."</span></div>' +
       '<div class="field"><label for="ins-model">AI model</label><select id="ins-model">' +
@@ -1267,7 +1267,7 @@ function insSetup(open) {
           '"' +
           (m[0] === insModel() ? " selected" : "") +
           ">" +
-          Ht(m[1]) +
+          esc(m[1]) +
           "</option>"
         );
       }).join("") +
@@ -1281,17 +1281,17 @@ function insSetup(open) {
     c.key = p.querySelector("#ins-key").value.trim();
     c.context = p.querySelector("#ins-ctx").value.trim();
     c.model = p.querySelector("#ins-model").value;
-    s();
+    saveData();
   };
   var gc = function () {
-    var n = (d.insGuides || []).length;
+    var n = (appData.insGuides || []).length;
     p.querySelector("#ins-gcount").textContent = n + " saved";
     p.querySelector("#ins-gclear").disabled = !n;
   };
   gc();
   p.querySelector("#ins-gclear").addEventListener("click", function () {
-    d.insGuides = [];
-    s();
+    appData.insGuides = [];
+    saveData();
     gc();
     toast("Saved write-ups cleared. The next report writes them fresh.");
   });
@@ -1322,9 +1322,9 @@ function insSetup(open) {
 }
 
 function insProtoForm(prefill) {
-  var end = (prefill && prefill.end) || te(),
-    len = prefill && prefill.start ? ae(prefill.start, prefill.end) + 1 : 14;
-  Vt(
+  var end = (prefill && prefill.end) || todayIso(),
+    len = prefill && prefill.start ? daysBetween(prefill.start, prefill.end) + 1 : 14;
+  openForm(
     "New protocol report",
     '<div class="fgrid"><div class="field"><label for="ip-len">Covers</label><select id="ip-len">' +
       [
@@ -1340,20 +1340,20 @@ function insProtoForm(prefill) {
         .join("") +
       "</select></div>" +
       '<div class="field"><label for="ip-end">Ending on</label><input id="ip-end" type="date" max="' +
-      te() +
+      todayIso() +
       '" value="' +
-      Ht(end) +
+      esc(end) +
       '"></div></div>' +
       '<p class="tiny muted" id="ip-prev" style="margin:0"></p>',
     '<button class="btn ghost" data-close>Cancel</button><button class="btn" id="ip-go">' +
       (prefill ? "Write it again" : "Write report") +
       "</button>",
   );
-  var m = Ot("#modal");
+  var m = qs("#modal");
   var per = function () {
-    var e2 = m.querySelector("#ip-end").value || te();
-    if (e2 > te()) e2 = te();
-    return { start: ne(e2, -(+m.querySelector("#ip-len").value - 1)), end: e2 };
+    var e2 = m.querySelector("#ip-end").value || todayIso();
+    if (e2 > todayIso()) e2 = todayIso();
+    return { start: addDays(e2, -(+m.querySelector("#ip-len").value - 1)), end: e2 };
   };
   var show = function () {
     var p = per(),
@@ -1385,7 +1385,7 @@ function insLabForm(prefill) {
     return;
   }
   var cur = (prefill && prefill.drawId) || draws[draws.length - 1].id;
-  Vt(
+  openForm(
     "Lab analysis",
     '<div class="field"><label for="il-draw">Focus on the draw of</label><select id="il-draw">' +
       draws
@@ -1394,12 +1394,12 @@ function insLabForm(prefill) {
         .map(function (x) {
           return (
             '<option value="' +
-            Ht(x.id) +
+            esc(x.id) +
             '"' +
             (x.id === cur ? " selected" : "") +
             ">" +
-            Ht(de(x.date)) +
-            (x.label ? " · " + Ht(x.label) : "") +
+            esc(fullDate(x.date)) +
+            (x.label ? " · " + esc(x.label) : "") +
             "</option>"
           );
         })
@@ -1410,7 +1410,7 @@ function insLabForm(prefill) {
       (prefill ? "Analyse again" : "Analyse") +
       "</button>",
   );
-  var m = Ot("#modal");
+  var m = qs("#modal");
   m.querySelector("#il-go").addEventListener("click", function (e) {
     var id = m.querySelector("#il-draw").value;
     insGo(e.currentTarget, function () {
@@ -1427,16 +1427,16 @@ function insRecs(list) {
       .map(function (x) {
         return (
           '<div class="ins-rec" data-p="' +
-          Ht(x.priority || "") +
+          esc(x.priority || "") +
           '"><div class="spread"><b>' +
-          Ht(x.title) +
+          esc(x.title) +
           "</b>" +
           (x.priority === "high" ? '<span class="pill late">Priority</span>' : "") +
           "</div>" +
           '<p class="muted" style="margin:4px 0 6px">' +
-          Ht(x.why) +
+          esc(x.why) +
           '</p><p style="margin:0">' +
-          Ht(x.action) +
+          esc(x.action) +
           "</p></div>"
         );
       })
@@ -1448,16 +1448,16 @@ function insNotes(title, list) {
   if (!list || !list.length) return "";
   return (
     '<div class="panel"><h2>' +
-    Ht(title) +
+    esc(title) +
     '</h2><div class="pbody stack" style="gap:10px">' +
     list
       .map(function (x) {
         return typeof x === "string"
-          ? '<p style="margin:0">' + Ht(x) + "</p>"
+          ? '<p style="margin:0">' + esc(x) + "</p>"
           : "<div><b>" +
-              Ht(x.title) +
+              esc(x.title) +
               '</b><p class="muted" style="margin:3px 0 0">' +
-              Ht(x.detail) +
+              esc(x.detail) +
               "</p></div>";
       })
       .join("") +
@@ -1524,10 +1524,10 @@ function insFlagPanel(flags, notes) {
     if (n && n.id) by[String(n.id).trim().toUpperCase()] = n.explanation;
   });
   if (!flags.length)
-    return Bt(
+    return htmlEl(
       '<div class="panel"><h2>Flagged</h2><div class="pbody"><p class="muted" style="margin:0">Nothing flagged: labs in range, no rising home readings, no off-schedule doses.</p></div></div>',
     );
-  return Bt(
+  return htmlEl(
     '<div class="panel"><h2>Flagged<span class="tiny muted">picked by the app from your data, explained by Claude</span></h2><div class="pbody stack" style="gap:12px">' +
       flags
         .map(function (f) {
@@ -1537,14 +1537,14 @@ function insFlagPanel(flags, notes) {
             '<div class="ins-rec" data-p="' +
             (f.sev === "high" ? "high" : f.sev === "low" ? "low" : "medium") +
             '"><div class="spread"><b>' +
-            Ht(f.text) +
+            esc(f.text) +
             '</b><span class="pill ' +
             s[1] +
             '">' +
             s[0] +
             "</span></div>" +
             (x
-              ? '<p class="muted" style="margin:4px 0 0">' + Ht(x) + "</p>"
+              ? '<p class="muted" style="margin:4px 0 0">' + esc(x) + "</p>"
               : '<p class="tiny" style="margin:4px 0 0;color:var(--due)">Claude did not explain this one. Press Write again.</p>') +
             "</div>"
           );
@@ -1558,17 +1558,17 @@ function insDetail(rep) {
     return insDetail0(rep);
   } catch (e) {
     console.error(e);
-    var el = Bt(
+    var el = htmlEl(
       '<div class="stack"><div class="head"><div><button class="btn ghost sm" id="ind-back">‹ All reports</button><h1>Could not show this report</h1>' +
         "<p>" +
-        Ht(e.message || String(e)) +
+        esc(e.message || String(e)) +
         '</p></div></div><div class="panel"><div class="pbody"><p class="tiny muted" style="margin:0 0 8px">What Claude sent:</p>' +
         '<pre style="white-space:pre-wrap;font-size:12px;margin:0">' +
-        Ht(JSON.stringify(rep.ai, null, 2)) +
+        esc(JSON.stringify(rep.ai, null, 2)) +
         "</pre></div></div></div>",
     );
     el.querySelector("#ind-back").addEventListener("click", function () {
-      r.insOpen = null;
+      ui.insOpen = null;
       redrawPage();
     });
     return el;
@@ -1576,22 +1576,22 @@ function insDetail(rep) {
 }
 function insDetail0(rep) {
   var a = insFix(rep.ai),
-    el = Bt('<div class="stack ins-detail"></div>');
+    el = htmlEl('<div class="stack ins-detail"></div>');
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="head"><div><button class="btn ghost sm" id="ind-back" style="margin-bottom:8px">‹ All reports</button>' +
         "<h1>" +
-        Ht(rep.kind === "lab" ? "Labs: draw of " + de(rep.end) : insRange(rep.start, rep.end)) +
+        esc(rep.kind === "lab" ? "Labs: draw of " + fullDate(rep.end) : insRange(rep.start, rep.end)) +
         "</h1>" +
         "<p>Written " +
-        Ht(de(_(new Date(rep.created)))) +
-        (rep.model ? " by " + Ht(rep.model) : "") +
+        esc(fullDate(isoDate(new Date(rep.created)))) +
+        (rep.model ? " by " + esc(rep.model) : "") +
         "</p></div>" +
         '<div class="row"><button class="btn ghost" id="ind-again">Write again</button><button class="btn danger" id="ind-del">Delete</button></div></div>',
     ),
   );
   el.querySelector("#ind-back").addEventListener("click", function () {
-    r.insOpen = null;
+    ui.insOpen = null;
     redrawPage();
   });
   el.querySelector("#ind-again").addEventListener("click", function () {
@@ -1604,23 +1604,23 @@ function insDetail0(rep) {
       del.textContent = "Press again to delete";
       return;
     }
-    d.insights = d.insights.filter(function (x) {
+    appData.insights = appData.insights.filter(function (x) {
       return x.id !== rep.id;
     });
-    r.insOpen = null;
-    s();
+    ui.insOpen = null;
+    saveData();
     redrawPage();
     toast("Report deleted.");
   });
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="panel"><div class="pbody"><div class="spread" style="align-items:flex-start;margin-bottom:8px"><b class="ins-head">' +
-        Ht(a.headline || "") +
+        esc(a.headline || "") +
         "</b>" +
         insPill(rep.rating || a.rating, INS_RATING) +
         "</div>" +
         '<p style="margin:0">' +
-        Ht(a.summary || "") +
+        esc(a.summary || "") +
         "</p>" +
         (rep.kind === "protocol" && rep.stats.pct !== null
           ? '<div style="margin-top:14px"><div class="big-read">' +
@@ -1649,7 +1649,7 @@ function insDetail0(rep) {
           : "") +
         (rep.ratingWhy
           ? '<p class="tiny muted" style="margin:10px 0 0">Rating set by the app: ' +
-            Ht(rep.ratingWhy) +
+            esc(rep.ratingWhy) +
             "</p>"
           : "") +
         "</div></div>",
@@ -1662,25 +1662,25 @@ function insDetail0(rep) {
     (rep.stats.rows || []).forEach(function (x) {
       byName[x.name.toLowerCase()] = x;
     });
-    var grid = Bt('<div class="grid2"></div>');
+    var grid = htmlEl('<div class="grid2"></div>');
     (rep.guides || a.compounds || []).forEach(function (cmp) {
       var st0 = byName[String(cmp.name).toLowerCase()] || null;
       grid.appendChild(
-        Bt(
+        htmlEl(
           '<div class="panel"><div class="pbody">' +
             '<div class="spread" style="margin-bottom:2px"><b style="font-size:17px">' +
-            Ht(cmp.name) +
+            esc(cmp.name) +
             '</b><span class="pill ins-st-' +
-            Ht(cmp.stage) +
+            esc(cmp.stage) +
             '">' +
-            Ht(INS_STAGE[cmp.stage] || cmp.stage) +
+            esc(INS_STAGE[cmp.stage] || cmp.stage) +
             "</span></div>" +
             (st0
               ? '<div class="tiny muted" style="margin-bottom:10px">' +
                 (st0.week ? "Week " + st0.week + " · " : "") +
-                Ht(st0.dose) +
+                esc(st0.dose) +
                 " · " +
-                Ht(st0.schedule) +
+                esc(st0.schedule) +
                 "</div>" +
                 (st0.sched
                   ? '<div class="spread tiny" style="margin-bottom:4px"><span class="muted">Logged</span><b class="mono">' +
@@ -1697,43 +1697,43 @@ function insDetail0(rep) {
                   : "")
               : "") +
             (cmp.expect
-              ? '<p style="margin:0 0 10px">' + Ht(cmp.expect) + "</p>"
+              ? '<p style="margin:0 0 10px">' + esc(cmp.expect) + "</p>"
               : '<p class="tiny" style="margin:0 0 10px;color:var(--due)">No write-up for this compound yet. Press Write again.</p>') +
             ((cmp.watch || []).length
               ? '<div class="eyebrow" style="margin:0 0 6px">Watch for</div><div class="ins-watch">' +
                 cmp.watch
                   .map(function (w) {
-                    return '<span class="pill">' + Ht(w) + "</span>";
+                    return '<span class="pill">' + esc(w) + "</span>";
                   })
                   .join("") +
                 "</div>"
               : "") +
-            (cmp.tip ? '<div class="ins-tip"><span>✦</span><span>' + Ht(cmp.tip) + "</span></div>" : "") +
+            (cmp.tip ? '<div class="ins-tip"><span>✦</span><span>' + esc(cmp.tip) + "</span></div>" : "") +
             "</div></div>",
         ),
       );
     });
     if (grid.children.length) {
-      el.appendChild(Bt('<div class="eyebrow" style="margin:4px 0 -6px">Each compound</div>'));
+      el.appendChild(htmlEl('<div class="eyebrow" style="margin:4px 0 -6px">Each compound</div>'));
       el.appendChild(grid);
     }
-    if ((a.interactions || []).length) el.appendChild(Bt(insNotes("Overlaps in the stack", a.interactions)));
-    if ((a.lab_notes || []).length) el.appendChild(Bt(insNotes("Your labs and this stack", a.lab_notes)));
-    if ((a.recommendations || []).length) el.appendChild(Bt(insRecs(a.recommendations)));
+    if ((a.interactions || []).length) el.appendChild(htmlEl(insNotes("Overlaps in the stack", a.interactions)));
+    if ((a.lab_notes || []).length) el.appendChild(htmlEl(insNotes("Your labs and this stack", a.lab_notes)));
+    if ((a.recommendations || []).length) el.appendChild(htmlEl(insRecs(a.recommendations)));
   } else {
     if ((a.findings || []).length)
       el.appendChild(
-        Bt(
+        htmlEl(
           '<div class="panel"><h2>Findings</h2><div class="pbody stack" style="gap:12px">' +
             a.findings
               .map(function (f) {
                 return (
                   '<div><div class="spread"><b>' +
-                  Ht(f.test) +
+                  esc(f.test) +
                   "</b>" +
                   insPill(f.status, INS_STATUS) +
                   '</div><p class="muted" style="margin:3px 0 0">' +
-                  Ht(f.detail) +
+                  esc(f.detail) +
                   "</p></div>"
                 );
               })
@@ -1741,15 +1741,15 @@ function insDetail0(rep) {
             "</div></div>",
         ),
       );
-    if ((a.observations || []).length) el.appendChild(Bt(insNotes("Observations", a.observations)));
-    if ((a.recommendations || []).length) el.appendChild(Bt(insRecs(a.recommendations)));
+    if ((a.observations || []).length) el.appendChild(htmlEl(insNotes("Observations", a.observations)));
+    if ((a.recommendations || []).length) el.appendChild(htmlEl(insRecs(a.recommendations)));
     if ((a.clinician_questions || []).length)
       el.appendChild(
-        Bt(
+        htmlEl(
           '<div class="panel"><h2>Questions for your clinician</h2><div class="pbody"><ol style="margin:0;padding-left:20px">' +
             a.clinician_questions
               .map(function (q) {
-                return '<li style="padding:3px 0">' + Ht(q) + "</li>";
+                return '<li style="padding:3px 0">' + esc(q) + "</li>";
               })
               .join("") +
             "</ol></div></div>",
@@ -1757,7 +1757,7 @@ function insDetail0(rep) {
       );
   }
   el.appendChild(
-    Bt(
+    htmlEl(
       '<p class="tiny muted" style="margin:0">Written by AI from your own log. It can misread or miss things, so check anything surprising against your records. A log, not medical advice.</p>',
     ),
   );

@@ -1,5 +1,5 @@
 {
-  "build": 80,
+  "build": 81,
   "date": "2026-10-30",
-  "note": "Insights code removed from the community file, AI Worker locked to the personal app, Firebase rules, separation tests"
+  "note": "Readable names throughout the main app code; no change in how the app works"
 }

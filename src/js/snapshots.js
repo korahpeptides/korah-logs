@@ -73,16 +73,16 @@ function snapList() {
   });
 }
 async function snapTake(kind, why) {
-  var json = JSON.stringify(d),
+  var json = JSON.stringify(appData),
     z = await gzip(json),
     at = Date.now(),
     rec = {
       id: kind + "-" + at,
       kind: kind,
       at: at,
-      date: te(),
+      date: todayIso(),
       why: why || "",
-      counts: snapCounts(d),
+      counts: snapCounts(appData),
       z: z ? 1 : 0,
       body: z || json,
     };
@@ -111,12 +111,12 @@ async function snapDaily() {
   if (snapBusy) return;
   snapBusy = true;
   try {
-    var today = te(),
+    var today = todayIso(),
       list = await snapList();
     var has = list.some(function (x) {
       return x.kind === "daily" && x.date === today;
     });
-    var empty = !(d.compounds || []).length && !(d.logs || []).length && !(d.labDraws || []).length;
+    var empty = !(appData.compounds || []).length && !(appData.logs || []).length && !(appData.labDraws || []).length;
     if (!has && !empty) await snapTake("daily", "");
   } catch (e) {
   } finally {
@@ -139,13 +139,13 @@ async function snapRestore(id) {
   if (!rec) throw new Error("That copy is gone.");
   var snap = JSON.parse(rec.z ? await gunzip(rec.body) : rec.body);
   if (!snap || !Array.isArray(snap.compounds)) throw new Error("That copy could not be read.");
-  if (!(await snapBefore("before restoring the copy from " + de(rec.date)))) return false;
+  if (!(await snapBefore("before restoring the copy from " + fullDate(rec.date)))) return false;
   var now = Date.now(),
-    keepSync = d.settings && d.settings.sync,
-    nd = Object.assign(l(), snap);
-  nd.settings = Object.assign(l().settings, snap.settings || {});
+    keepSync = appData.settings && appData.settings.sync,
+    nd = Object.assign(emptyData(), snap);
+  nd.settings = Object.assign(emptyData().settings, snap.settings || {});
   keepSync && (nd.settings.sync = keepSync);
-  nd._del = Object.assign({}, d._del || {});
+  nd._del = Object.assign({}, appData._del || {});
   for (var i = 0; i < SYNC_LISTS.length; i++) {
     var list = nd[SYNC_LISTS[i]] || [];
     for (var j = 0; j < list.length; j++)
@@ -157,8 +157,8 @@ async function snapRestore(id) {
   nd.settings._m = now;
   nd.settings._mk = {};
   for (var k in nd.settings) k !== "_m" && k !== "_mk" && (nd.settings._mk[k] = now);
-  d = nd;
-  s();
+  appData = nd;
+  saveData();
   return true;
 }
 
@@ -168,7 +168,7 @@ function fmtDay(t) {
 
 // Settings panel
 function snapPanel() {
-  var p = Bt(
+  var p = htmlEl(
     '<div class="panel" id="snap-panel"><h2>Daily copies on this device</h2><div class="pbody">' +
       '<p class="tiny muted" style="margin:0 0 12px">The app keeps a copy of everything each day you open it (the last ' +
       SNAP_KEEP_DAILY +
@@ -191,13 +191,13 @@ function snapPanel() {
           .map(function (x) {
             var c = x.counts || {},
               t = new Date(x.at),
-              when = de(fmtDay(t)) + " · " + String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0"),
+              when = fullDate(fmtDay(t)) + " · " + String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0"),
               label = x.kind === "daily" ? "Daily copy" : x.why ? "Copy " + x.why : "Copy";
             return (
               '<div class="listrow" style="align-items:center"><span><span class="lname">' +
-              Ht(when) +
+              esc(when) +
               '</span><span class="lmeta">' +
-              Ht(label) +
+              esc(label) +
               " · " +
               (c.shots || 0) +
               " shots · " +
@@ -205,7 +205,7 @@ function snapPanel() {
               " protocols · " +
               (c.draws || 0) +
               ' lab draws</span></span><span class="lright"><button class="btn ghost sm" data-snap="' +
-              Ht(x.id) +
+              esc(x.id) +
               '">Restore</button></span></div>'
             );
           })

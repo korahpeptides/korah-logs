@@ -10,12 +10,12 @@ var LAB_STATUS_TEXT = {
 };
 
 function labTests() {
-  return (d.labTests || []).slice().sort(function (a, b) {
+  return (appData.labTests || []).slice().sort(function (a, b) {
     return (a.order || 0) - (b.order || 0);
   });
 }
 function labDraws() {
-  return (d.labDraws || []).slice().sort(function (a, b) {
+  return (appData.labDraws || []).slice().sort(function (a, b) {
     return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.time || "") < (b.time || "") ? -1 : 1;
   });
 }
@@ -76,14 +76,14 @@ function labTargetText(t) {
   return a.length ? a.join(" and ") + " " + labUnit(t) : "";
 }
 function labFmtDate(iso) {
-  return de(iso);
+  return fullDate(iso);
 }
 function labShortDate(iso) {
-  var x = ee(iso);
-  return le[x.getMonth()] + " " + x.getDate() + " '" + String(x.getFullYear()).slice(2);
+  var x = parseDate(iso);
+  return MONTHS[x.getMonth()] + " " + x.getDate() + " '" + String(x.getFullYear()).slice(2);
 }
 function labTime(tm) {
-  var u = ue(tm);
+  var u = splitTime(tm);
   return u ? u.t + (u.ap ? " " + u.ap : "") : "";
 }
 function labCond(dr) {
@@ -98,24 +98,24 @@ function labCond(dr) {
 /* Start / stop dates from the shot log: a gap of more than 21 days counts as a stop. */
 function labEvents() {
   var by = {};
-  (d.logs || []).forEach(function (l) {
+  (appData.logs || []).forEach(function (l) {
     if (!l || l.status !== "taken" || !l.compoundId) return;
     var dt = l.date || String(l.at || "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dt)) return;
     (by[l.compoundId] = by[l.compoundId] || []).push(dt);
   });
   var ev = [],
-    today = te();
+    today = todayIso();
   Object.keys(by).forEach(function (cid) {
-    var name = pt(cid) || "Compound";
+    var name = compoundName(cid) || "Compound";
     var ds = Array.from(new Set(by[cid])).sort();
     var start = ds[0],
       prev = ds[0];
     for (var i = 1; i <= ds.length; i++) {
       var cur = ds[i];
-      if (cur === undefined || ae(prev, cur) > 21) {
+      if (cur === undefined || daysBetween(prev, cur) > 21) {
         ev.push({ date: start, kind: "start", name: name });
-        if (cur !== undefined || ae(prev, today) > 21) ev.push({ date: prev, kind: "stop", name: name });
+        if (cur !== undefined || daysBetween(prev, today) > 21) ev.push({ date: prev, kind: "stop", name: name });
         start = cur;
       }
       prev = cur;
@@ -196,8 +196,8 @@ function labChart(t, ser, events) {
     R = 10,
     T = 26,
     B = 30;
-  var t0 = ee(pts[0].draw.date).getTime(),
-    t1 = ee(pts[pts.length - 1].draw.date).getTime();
+  var t0 = parseDate(pts[0].draw.date).getTime(),
+    t1 = parseDate(pts[pts.length - 1].draw.date).getTime();
   var pad = Math.max((t1 - t0) * 0.04, 20 * 864e5);
   t0 -= pad;
   t1 += pad;
@@ -292,7 +292,7 @@ function labChart(t, ser, events) {
       '" y="' +
       (yy + 3.5).toFixed(1) +
       '" text-anchor="end" font-size="10" style="font-family:var(--mono)" fill="var(--ink-3)">' +
-      fe(v, Math.abs(vmax - vmin) < 2 ? 2 : Math.abs(vmax - vmin) < 20 ? 1 : 0) +
+      fmt(v, Math.abs(vmax - vmin) < 2 ? 2 : Math.abs(vmax - vmin) < 20 ? 1 : 0) +
       "</text>";
   }
   // x ticks: each year/half-year boundary
@@ -320,7 +320,7 @@ function labChart(t, ser, events) {
       '" y="' +
       (H - B + 16) +
       '" text-anchor="middle" font-size="10" style="font-family:var(--mono)" fill="var(--ink-3)">' +
-      le[cur.getMonth()] +
+      MONTHS[cur.getMonth()] +
       (cur.getMonth() === 0 || step >= 3 ? " '" + String(cur.getFullYear()).slice(2) : "") +
       "</text>";
     cur.setMonth(cur.getMonth() + step);
@@ -337,11 +337,11 @@ function labChart(t, ser, events) {
     '" stroke="var(--rule)"/>';
   // dose markers
   var shown = (events || []).filter(function (e) {
-    var ms = ee(e.date).getTime();
+    var ms = parseDate(e.date).getTime();
     return ms >= t0 && ms <= t1;
   });
   shown.forEach(function (e, i) {
-    var xx = X(ee(e.date).getTime()).toFixed(1),
+    var xx = X(parseDate(e.date).getTime()).toFixed(1),
       yTop = 6 + (i % 2) * 11;
     g +=
       '<line x1="' +
@@ -367,7 +367,7 @@ function labChart(t, ser, events) {
     '<path d="' +
     pts
       .map(function (p, i) {
-        return (i ? "L" : "M") + X(ee(p.draw.date).getTime()).toFixed(1) + " " + Y(p.p.n).toFixed(1);
+        return (i ? "L" : "M") + X(parseDate(p.draw.date).getTime()).toFixed(1) + " " + Y(p.p.n).toFixed(1);
       })
       .join(" ") +
     '" fill="none" stroke="var(--ink-2)" stroke-width="1.6" stroke-linejoin="round"/>';
@@ -375,13 +375,13 @@ function labChart(t, ser, events) {
     var st = labStatus(t, p.raw);
     g +=
       '<circle cx="' +
-      X(ee(p.draw.date).getTime()).toFixed(1) +
+      X(parseDate(p.draw.date).getTime()).toFixed(1) +
       '" cy="' +
       Y(p.p.n).toFixed(1) +
       '" r="4.6" class="lab-dot ' +
       labCls(st) +
       '" stroke="var(--surface)" stroke-width="1.5"><title>' +
-      Ht(labFmtDate(p.draw.date) + ": " + p.raw + " " + labUnit(t)) +
+      esc(labFmtDate(p.draw.date) + ": " + p.raw + " " + labUnit(t)) +
       "</title></circle>";
   });
   var leg = shown.length
@@ -392,9 +392,9 @@ function labChart(t, ser, events) {
             "<li><b>" +
             (e.kind === "start" ? "Started" : "Stopped") +
             "</b> " +
-            Ht(e.name) +
+            esc(e.name) +
             ' <span class="muted">' +
-            Ht(labFmtDate(e.date)) +
+            esc(labFmtDate(e.date)) +
             "</span></li>"
           );
         })
@@ -407,7 +407,7 @@ function labChart(t, ser, events) {
     " " +
     H +
     '" width="100%" role="img" aria-label="' +
-    Ht(t.name) +
+    esc(t.name) +
     ' over time">' +
     g +
     "</svg>" +
@@ -417,31 +417,31 @@ function labChart(t, ser, events) {
 
 /* ---------- views ---------- */
 function labView() {
-  r.labView = r.labView || "tests";
-  if (r.labHelp) return labHelpView();
+  ui.labView = ui.labView || "tests";
+  if (ui.labHelp) return labHelpView();
   if (
-    r.labTest &&
-    (d.labTests || []).some(function (t) {
-      return t.id === r.labTest;
+    ui.labTest &&
+    (appData.labTests || []).some(function (t) {
+      return t.id === ui.labTest;
     })
   )
-    return labDetail(r.labTest);
-  r.labTest = null;
-  var el = Bt('<div class="stack lab-root"></div>');
+    return labDetail(ui.labTest);
+  ui.labTest = null;
+  var el = htmlEl('<div class="stack lab-root"></div>');
   var tests = labTests(),
     draws = labDraws();
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="head"><div><h1>Labs</h1><p>Every blood draw in one place, checked against the lab range and your own targets. Start and stop dates from your shot log show on each chart.</p></div>' +
         '<div class="row" style="flex-wrap:wrap;gap:8px"><button class="btn" id="lab-paste">Paste from AI</button><button class="btn ghost" id="lab-imp">Import file</button><button class="btn ghost" id="lab-newdraw">Add a draw</button></div></div>',
     ),
   );
   el.appendChild(
-    Bt(
+    htmlEl(
       '<p class="tiny" style="margin:-8px 0 0"><a href="#" data-labhelp="1">How to fill this in with an AI app</a></p>',
     ),
   );
-  var file = Bt('<input type="file" accept=".json,application/json" hidden id="lab-file">');
+  var file = htmlEl('<input type="file" accept=".json,application/json" hidden id="lab-file">');
   el.appendChild(file);
   file.addEventListener("change", labImport);
   el.querySelector("#lab-imp").addEventListener("click", function () {
@@ -452,7 +452,7 @@ function labView() {
   });
   el.querySelector("#lab-paste").addEventListener("click", labPasteForm);
   if (!tests.length) {
-    var em = Bt(
+    var em = htmlEl(
       '<div class="panel"><div class="empty"><b>No lab results yet</b>The quick way in: an AI chat app reads your lab reports and you paste its answer here.<br><br>' +
         '<button class="btn" data-labhelp="1">Show me how</button><br><br><span class="tiny">Or type them in: press <a href="#" id="lab-emtest">Add a test</a> for each test, then Add a draw.</span></div></div>',
     );
@@ -487,10 +487,10 @@ function labView() {
   });
   var lastDraw = draws[draws.length - 1];
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="lab-sum">' +
         '<div class="panel lab-tile"><div class="tiny muted">Latest draw</div><div class="lab-big">' +
-        (lastDraw ? Ht(labFmtDate(lastDraw.date)) : "—") +
+        (lastDraw ? esc(labFmtDate(lastDraw.date)) : "—") +
         '</div><div class="tiny muted">' +
         draws.length +
         " draws · " +
@@ -506,8 +506,8 @@ function labView() {
     ),
   );
   // controls
-  var v = r.labView;
-  var ctl = Bt(
+  var v = ui.labView;
+  var ctl = htmlEl(
     '<div class="lab-ctl"><div class="seg" id="lab-seg"><button data-lv="tests" aria-pressed="' +
       (v === "tests") +
       '">By test</button><button data-lv="table" aria-pressed="' +
@@ -517,9 +517,9 @@ function labView() {
       '">Draws</button></div>' +
       (v !== "draws"
         ? '<label class="check" style="margin:0"><input type="checkbox" id="lab-flag" ' +
-          (r.labFlag ? "checked" : "") +
+          (ui.labFlag ? "checked" : "") +
           '><span>Flagged only</span></label><input id="lab-q" class="lab-q" type="search" placeholder="Find a test" value="' +
-          Ht(r.labQ || "") +
+          esc(ui.labQ || "") +
           '">'
         : "") +
       '<span class="lab-legend tiny"><span class="lab-bad">● Out of lab range</span>' +
@@ -528,14 +528,14 @@ function labView() {
   );
   ctl.querySelectorAll("[data-lv]").forEach(function (b) {
     b.addEventListener("click", function () {
-      r.labView = b.dataset.lv;
+      ui.labView = b.dataset.lv;
       redrawPage();
     });
   });
   var fl = ctl.querySelector("#lab-flag");
   if (fl)
     fl.addEventListener("change", function () {
-      r.labFlag = fl.checked;
+      ui.labFlag = fl.checked;
       redrawPage();
     });
   el.appendChild(ctl);
@@ -545,7 +545,7 @@ function labView() {
   var q = ctl.querySelector("#lab-q");
   if (q) {
     var apply = function () {
-      r.labQ = q.value;
+      ui.labQ = q.value;
       var s = q.value.trim().toLowerCase();
       body.querySelectorAll("[data-lname]").forEach(function (n) {
         n.hidden = !!s && n.dataset.lname.indexOf(s) < 0;
@@ -558,7 +558,7 @@ function labView() {
     if (q.value) apply();
   }
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn ghost sm" id="lab-newtest">Add a test</button><button class="btn ghost sm" id="lab-csv">Download as spreadsheet (CSV)</button></div>',
     ),
   );
@@ -567,7 +567,7 @@ function labView() {
   });
   el.querySelector("#lab-csv").addEventListener("click", labCsv);
   el.appendChild(
-    Bt(
+    htmlEl(
       '<p class="tiny muted" style="margin:0">A log, not medical advice. Ranges are the ones on your lab reports; your ordering clinicians interpret them.</p>',
     ),
   );
@@ -587,7 +587,7 @@ function labGroups(tests) {
   return gs;
 }
 function labByTest(tests) {
-  var wrap = Bt('<div class="stack"></div>');
+  var wrap = htmlEl('<div class="stack"></div>');
   labGroups(tests).forEach(function (gr) {
     var rows = "";
     gr[1].forEach(function (t) {
@@ -599,14 +599,14 @@ function labByTest(tests) {
         last = num.length ? num[num.length - 1] : s[s.length - 1],
         prev = num.length > 1 ? num[num.length - 2] : null,
         st = labStatus(t, last.raw);
-      if (r.labFlag && !(st === "hi" || st === "lo" || st === "tgt")) return;
+      if (ui.labFlag && !(st === "hi" || st === "lo" || st === "tgt")) return;
       var delta = "";
       if (prev && prev.p && last.p) {
         var dv = last.p.n - prev.p.n,
           pst = labStatus(t, prev.raw);
         var fixed = (pst === "hi" || pst === "lo" || pst === "tgt") && st === "ok";
         delta =
-          (dv ? (dv > 0 ? "▲ " : "▼ ") + fe(Math.abs(dv), 3) : "no change") +
+          (dv ? (dv > 0 ? "▲ " : "▼ ") + fmt(Math.abs(dv), 3) : "no change") +
           " since " +
           labShortDate(prev.draw.date) +
           (fixed ? ' · <span class="lab-ok"><b>back in range</b></span>' : "");
@@ -615,31 +615,31 @@ function labByTest(tests) {
         '<button class="lab-row" data-ltest="' +
         t.id +
         '" data-lname="' +
-        Ht(t.name.toLowerCase()) +
+        esc(t.name.toLowerCase()) +
         '">' +
         '<span class="lab-name"><b>' +
-        Ht(t.name) +
+        esc(t.name) +
         '</b><span class="tiny muted">' +
-        Ht(t.range || "") +
+        esc(t.range || "") +
         (t.calc ? " · calculated" : "") +
         "</span></span>" +
         labSpark(t, s) +
         '<span class="lab-val"><span><span class="lab-num ' +
         labCls(st) +
         '">' +
-        Ht(last.p ? last.raw.split("/")[0] : last.raw) +
+        esc(last.p ? last.raw.split("/")[0] : last.raw) +
         '</span> <span class="tiny muted">' +
-        Ht(last.p ? labUnit(t) : "") +
+        esc(last.p ? labUnit(t) : "") +
         "</span></span>" +
         '<span class="tiny muted lab-when">' +
-        Ht(labShortDate(last.draw.date)) +
+        esc(labShortDate(last.draw.date)) +
         (delta ? " · " + delta : "") +
         "</span></span></button>";
     });
     if (!rows) return;
-    var p = Bt(
+    var p = htmlEl(
       '<div class="panel" data-lgroup="1"><h2>' +
-        Ht(gr[0]) +
+        esc(gr[0]) +
         '</h2><div class="lab-rows">' +
         rows +
         "</div></div>",
@@ -648,14 +648,14 @@ function labByTest(tests) {
   });
   if (!wrap.children.length)
     wrap.appendChild(
-      Bt(
+      htmlEl(
         '<div class="panel"><div class="empty"><b>Nothing flagged</b>Every test\'s most recent result is in range.</div></div>',
       ),
     );
   wrap.addEventListener("click", function (e) {
     var b = e.target.closest("[data-ltest]");
     if (b) {
-      r.labTest = b.dataset.ltest;
+      ui.labTest = b.dataset.ltest;
       redrawPage();
     }
   });
@@ -670,9 +670,9 @@ function labTable(tests, draws) {
           '<th class="num"><button class="lab-dh" data-ldraw="' +
           dr.id +
           '">' +
-          Ht(labShortDate(dr.date)) +
+          esc(labShortDate(dr.date)) +
           '</button><div class="tiny muted" style="font-weight:400">' +
-          Ht(
+          esc(
             [dr.time ? labTime(dr.time) : "", dr.workout === "yes" ? "workout" : ""]
               .filter(Boolean)
               .join(" · "),
@@ -689,7 +689,7 @@ function labTable(tests, draws) {
       var s = labSeries(t.id);
       if (!s.length) return;
       if (
-        r.labFlag &&
+        ui.labFlag &&
         !s.some(function (x) {
           var st = labStatus(t, x.raw);
           return st === "hi" || st === "lo" || st === "tgt";
@@ -698,20 +698,20 @@ function labTable(tests, draws) {
         return;
       rows +=
         '<tr data-lname="' +
-        Ht(t.name.toLowerCase()) +
+        esc(t.name.toLowerCase()) +
         '"><td class="lab-stick"><button class="lab-tn" data-ltest="' +
         t.id +
         '">' +
-        Ht(t.name) +
+        esc(t.name) +
         '</button><div class="tiny muted">' +
-        Ht(labUnit(t)) +
+        esc(labUnit(t)) +
         " · " +
-        Ht(t.range || "") +
+        esc(t.range || "") +
         "</div></td>" +
         draws
           .map(function (dr) {
             var v = dr.results && dr.results[t.id];
-            return '<td class="num ' + labCls(v ? labStatus(t, v) : "") + '">' + (v ? Ht(v) : "") + "</td>";
+            return '<td class="num ' + labCls(v ? labStatus(t, v) : "") + '">' + (v ? esc(v) : "") + "</td>";
           })
           .join("") +
         "</tr>";
@@ -719,14 +719,14 @@ function labTable(tests, draws) {
     if (rows)
       body +=
         '<tbody data-lgroup="1"><tr class="lab-grp"><td class="lab-stick" colspan="1">' +
-        Ht(gr[0]) +
+        esc(gr[0]) +
         '</td><td colspan="' +
         draws.length +
         '"></td></tr>' +
         rows +
         "</tbody>";
   });
-  var p = Bt(
+  var p = htmlEl(
     '<div class="panel lab-tablewrap"><table class="lab-table"><thead>' +
       head +
       "</thead>" +
@@ -736,7 +736,7 @@ function labTable(tests, draws) {
   p.addEventListener("click", function (e) {
     var b = e.target.closest("[data-ltest]");
     if (b) {
-      r.labTest = b.dataset.ltest;
+      ui.labTest = b.dataset.ltest;
       redrawPage();
       return;
     }
@@ -750,7 +750,7 @@ function labDrawList(draws, tests) {
   tests.forEach(function (t) {
     byId[t.id] = t;
   });
-  var wrap = Bt(
+  var wrap = htmlEl(
     '<div class="panel" style="overflow:auto"><table><thead><tr><th>Date</th><th>Conditions</th><th class="num">Results</th><th class="num">Flagged</th><th>Notes</th><th></th></tr></thead><tbody></tbody></table></div>',
   );
   var tb = wrap.querySelector("tbody");
@@ -768,12 +768,12 @@ function labDrawList(draws, tests) {
         }
       });
       tb.appendChild(
-        Bt(
+        htmlEl(
           "<tr><td><b>" +
-            Ht(labFmtDate(dr.date)) +
+            esc(labFmtDate(dr.date)) +
             '</b></td><td class="tiny">' +
-            Ht(labCond(dr)) +
-            (dr.statin ? '<div class="muted">' + Ht(dr.statin) + "</div>" : "") +
+            esc(labCond(dr)) +
+            (dr.statin ? '<div class="muted">' + esc(dr.statin) + "</div>" : "") +
             '</td><td class="num">' +
             ids.length +
             '</td><td class="num ' +
@@ -781,7 +781,7 @@ function labDrawList(draws, tests) {
             '">' +
             (fl || "—") +
             '</td><td class="tiny">' +
-            Ht([dr.label, dr.notes].filter(Boolean).join(" — ")) +
+            esc([dr.label, dr.notes].filter(Boolean).join(" — ")) +
             '</td><td class="num"><button class="btn ghost sm" data-ldraw="' +
             dr.id +
             '">Edit</button></td></tr>',
@@ -795,21 +795,21 @@ function labDrawList(draws, tests) {
   return wrap;
 }
 function labDetail(id) {
-  var t = d.labTests.find(function (x) {
+  var t = appData.labTests.find(function (x) {
     return x.id === id;
   });
   var s = labSeries(id),
     ev = labEvents();
-  var el = Bt('<div class="stack lab-root"></div>');
+  var el = htmlEl('<div class="stack lab-root"></div>');
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="head"><div><button class="btn ghost sm" id="lab-back" style="margin-bottom:8px">‹ All labs</button><h1>' +
-        Ht(t.name) +
+        esc(t.name) +
         '</h1></div><button class="btn ghost" id="lab-edit">Edit test</button></div>',
     ),
   );
   el.querySelector("#lab-back").addEventListener("click", function () {
-    r.labTest = null;
+    ui.labTest = null;
     redrawPage();
   });
   el.querySelector("#lab-edit").addEventListener("click", function () {
@@ -817,28 +817,28 @@ function labDetail(id) {
   });
   var tgt = labTargetText(t);
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="panel"><div class="pbody lab-facts">' +
         '<div><div class="tiny muted">Lab range</div><b>' +
-        Ht(t.range || "—") +
+        esc(t.range || "—") +
         "</b></div>" +
         '<div><div class="tiny muted">Units</div><b>' +
-        Ht(t.unit || "—") +
+        esc(t.unit || "—") +
         "</b></div>" +
         (tgt
-          ? '<div><div class="tiny muted">Your target</div><b class="lab-tgt">' + Ht(tgt) + "</b></div>"
+          ? '<div><div class="tiny muted">Your target</div><b class="lab-tgt">' + esc(tgt) + "</b></div>"
           : "") +
         (t.calc ? '<div><div class="tiny muted">Source</div><b>Calculated, not lab-reported</b></div>' : "") +
         (t.desc
           ? '<div class="lab-what"><div class="tiny muted">What it measures</div><b>' +
-            Ht(t.desc) +
+            esc(t.desc) +
             "</b></div>"
           : "") +
         "</div></div>",
     ),
   );
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="panel"><h2>Over time<span class="tiny lab-legend"><span class="lab-band">▮ lab range</span>' +
         (tgt ? '<span class="lab-tgt">- - your target</span>' : "") +
         '<span style="color:var(--signal)">┆ start/stop</span></span></h2><div class="pbody">' +
@@ -859,32 +859,32 @@ function labDetail(id) {
       : [];
     var chs = ch
       .map(function (e) {
-        return (e.kind === "start" ? "Started " : "Stopped ") + Ht(e.name);
+        return (e.kind === "start" ? "Started " : "Stopped ") + esc(e.name);
       })
       .join("<br>");
     rows +=
       "<tr><td><b>" +
-      Ht(labFmtDate(x.draw.date)) +
+      esc(labFmtDate(x.draw.date)) +
       '</b><div class="tiny muted">' +
-      Ht(labCond(x.draw)) +
+      esc(labCond(x.draw)) +
       "</div>" +
       (chs ? '<div class="tiny lab-chm">' + chs + "</div>" : "") +
       "</td>" +
       '<td class="num"><span class="lab-num ' +
       labCls(st) +
       '">' +
-      Ht(x.raw) +
+      esc(x.raw) +
       '</span></td><td class="tiny ' +
       labCls(st) +
       '">' +
-      Ht(LAB_STATUS_TEXT[st] || "") +
+      esc(LAB_STATUS_TEXT[st] || "") +
       "</td>" +
       '<td class="tiny lab-chc">' +
       (chs || '<span class="muted">—</span>') +
       "</td></tr>";
   }
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="panel" style="overflow:auto"><h2>Results<span class="tiny muted">value as reported' +
         (String(t.unit).indexOf(" – ") > 0 ? " · Canada / US" : "") +
         '</span></h2><table class="lab-res"><thead><tr><th>Draw</th><th class="num">Result</th><th></th><th class="lab-chc">Changes in your log since the draw before</th></tr></thead><tbody>' +
@@ -894,7 +894,7 @@ function labDetail(id) {
   );
   if (t.notes)
     el.appendChild(
-      Bt('<div class="panel"><h2>Notes</h2><div class="pbody lab-notes">' + Ht(t.notes) + "</div></div>"),
+      htmlEl('<div class="panel"><h2>Notes</h2><div class="pbody lab-notes">' + esc(t.notes) + "</div></div>"),
     );
   return el;
 }
@@ -919,14 +919,14 @@ function labDrawForm(id) {
   var dr = id
     ? JSON.parse(
         JSON.stringify(
-          d.labDraws.find(function (x) {
+          appData.labDraws.find(function (x) {
             return x.id === id;
           }),
         ),
       )
     : {
-        id: "draw-" + ve(),
-        date: te(),
+        id: "draw-" + newId(),
+        date: todayIso(),
         time: "",
         label: "",
         workout: "",
@@ -941,7 +941,7 @@ function labDrawForm(id) {
     .map(function (gr) {
       return (
         '<fieldset class="lab-fs"><legend>' +
-        Ht(gr[0]) +
+        esc(gr[0]) +
         '</legend><div class="lab-fgrid">' +
         gr[1]
           .map(function (t) {
@@ -949,17 +949,17 @@ function labDrawForm(id) {
               '<div class="field"><label for="lr-' +
               t.id +
               '">' +
-              Ht(t.name) +
+              esc(t.name) +
               ' <span class="muted">(' +
-              Ht(labUnit(t)) +
+              esc(labUnit(t)) +
               ')</span></label><input id="lr-' +
               t.id +
               '" data-lr="' +
               t.id +
               '" value="' +
-              Ht((dr.results || {})[t.id] || "") +
+              esc((dr.results || {})[t.id] || "") +
               '" placeholder="' +
-              Ht(t.range || "") +
+              esc(t.range || "") +
               '"></div>'
             );
           })
@@ -968,16 +968,16 @@ function labDrawForm(id) {
       );
     })
     .join("");
-  Vt(
+  openForm(
     id ? "Edit draw" : "Add a draw",
     '<div class="fgrid3"><div class="field"><label for="ld-date">Date</label><input id="ld-date" type="date" value="' +
-      Ht(dr.date) +
+      esc(dr.date) +
       '"></div>' +
       '<div class="field"><label for="ld-time">Time drawn</label><input id="ld-time" type="time" value="' +
-      Ht(dr.time) +
+      esc(dr.time) +
       '"></div>' +
       '<div class="field"><label for="ld-wt">Body weight <span class="muted">(lb)</span></label><input id="ld-wt" type="number" step="any" value="' +
-      Ht(dr.weight) +
+      esc(dr.weight) +
       '"></div>' +
       '<div class="field"><label for="ld-fast">Fasted</label><select id="ld-fast">' +
       labOpt("", dr.fasted) +
@@ -986,22 +986,22 @@ function labDrawForm(id) {
       labOpt("", dr.workout) +
       "</select></div>" +
       '<div class="field"><label for="ld-st">' + (COMMUNITY ? "Medications at the time" : "Statin / ezetimibe") + '</label><input id="ld-st" value="' +
-      Ht(dr.statin) +
+      esc(dr.statin) +
       '"></div></div>' +
       '<div class="field"><label for="ld-lab">Ordered by / panel</label><input id="ld-lab" value="' +
-      Ht(dr.label) +
+      esc(dr.label) +
       '"></div>' +
       '<div class="field"><label for="ld-n">Notes</label><textarea id="ld-n">' +
-      Ht(dr.notes) +
+      esc(dr.notes) +
       "</textarea></div>" +
       '<p class="tiny muted" style="margin:4px 0 12px">Type results as the lab prints them. For a second unit use a slash (4.9/88). Leave blank anything not drawn. A value like &lt;0.1 is fine.</p>' +
       fields,
     (id ? '<button class="btn danger" id="ld-del">Delete draw</button>' : "") +
       '<button class="btn ghost" data-close>Cancel</button><button class="btn" id="ld-save">Save draw</button>',
   );
-  var m = Ot("#modal");
+  var m = qs("#modal");
   m.querySelector("#ld-save").addEventListener("click", function () {
-    dr.date = m.querySelector("#ld-date").value || te();
+    dr.date = m.querySelector("#ld-date").value || todayIso();
     dr.time = m.querySelector("#ld-time").value;
     dr.weight = m.querySelector("#ld-wt").value;
     dr.fasted = m.querySelector("#ld-fast").value;
@@ -1024,13 +1024,13 @@ function labDrawForm(id) {
         res[k] = dr.results[k];
     });
     dr.results = res;
-    d.labDraws = d.labDraws || [];
-    var ix = d.labDraws.findIndex(function (x) {
+    appData.labDraws = appData.labDraws || [];
+    var ix = appData.labDraws.findIndex(function (x) {
       return x.id === dr.id;
     });
-    ix >= 0 ? (d.labDraws[ix] = dr) : d.labDraws.push(dr);
-    s();
-    Rt();
+    ix >= 0 ? (appData.labDraws[ix] = dr) : appData.labDraws.push(dr);
+    saveData();
+    closeForm();
     redrawPage();
     toast("Draw saved.");
   });
@@ -1042,11 +1042,11 @@ function labDrawForm(id) {
         del.textContent = "Press again to delete";
         return;
       }
-      d.labDraws = d.labDraws.filter(function (x) {
+      appData.labDraws = appData.labDraws.filter(function (x) {
         return x.id !== dr.id;
       });
-      s();
-      Rt();
+      saveData();
+      closeForm();
       redrawPage();
       toast("Draw deleted.");
     });
@@ -1055,12 +1055,12 @@ function labTestForm(id) {
   var t = id
     ? Object.assign(
         {},
-        d.labTests.find(function (x) {
+        appData.labTests.find(function (x) {
           return x.id === id;
         }),
       )
     : {
-        id: "lab-" + ve(),
+        id: "lab-" + newId(),
         name: "",
         group: "",
         desc: "",
@@ -1073,7 +1073,7 @@ function labTestForm(id) {
         calc: false,
         notes: "",
         order:
-          (d.labTests || []).reduce(function (a, x) {
+          (appData.labTests || []).reduce(function (a, x) {
             return Math.max(a, x.order || 0);
           }, 0) + 1,
       };
@@ -1089,25 +1089,25 @@ function labTestForm(id) {
   var nv = function (v) {
     return labNumOk(v) ? v : "";
   };
-  Vt(
+  openForm(
     id ? "Edit test" : "Add a test",
     '<div class="field"><label for="lt-name">Name</label><input id="lt-name" value="' +
-      Ht(t.name) +
+      esc(t.name) +
       '"></div>' +
       '<div class="fgrid3"><div class="field"><label for="lt-grp">Section</label><input id="lt-grp" list="lt-grps" value="' +
-      Ht(t.group) +
+      esc(t.group) +
       '"><datalist id="lt-grps">' +
       groups
         .map(function (g) {
-          return '<option value="' + Ht(g) + '">';
+          return '<option value="' + esc(g) + '">';
         })
         .join("") +
       "</datalist></div>" +
       '<div class="field"><label for="lt-unit">Units</label><input id="lt-unit" value="' +
-      Ht(t.unit) +
+      esc(t.unit) +
       '"></div>' +
       '<div class="field"><label for="lt-range">Range as printed</label><input id="lt-range" value="' +
-      Ht(t.range) +
+      esc(t.range) +
       '"></div></div>' +
       '<p class="tiny muted" style="margin:0 0 8px">The numbers below drive the colours, in the first unit listed. Leave a box blank if there is no limit on that side.</p>' +
       '<div class="fgrid3"><div class="field"><label for="lt-lo">Lab low limit</label><input id="lt-lo" type="number" step="any" value="' +
@@ -1123,18 +1123,18 @@ function labTestForm(id) {
       nv(t.thi) +
       '"></div></div>' +
       '<div class="field"><label for="lt-desc">What it measures</label><input id="lt-desc" value="' +
-      Ht(t.desc) +
+      esc(t.desc) +
       '"></div>' +
       '<label class="check"><input type="checkbox" id="lt-calc" ' +
       (t.calc ? "checked" : "") +
       "><span>Calculated, not lab-reported</span></label>" +
       '<div class="field"><label for="lt-notes">Notes</label><textarea id="lt-notes" rows="5">' +
-      Ht(t.notes) +
+      esc(t.notes) +
       "</textarea></div>",
     (id ? '<button class="btn danger" id="lt-del">Delete test</button>' : "") +
       '<button class="btn ghost" data-close>Cancel</button><button class="btn" id="lt-save">Save test</button>',
   );
-  var m = Ot("#modal");
+  var m = qs("#modal");
   var num = function (sel) {
     var v = m.querySelector(sel).value.trim();
     return v === "" ? null : parseFloat(v);
@@ -1156,13 +1156,13 @@ function labTestForm(id) {
     t.desc = m.querySelector("#lt-desc").value.trim();
     t.calc = m.querySelector("#lt-calc").checked;
     t.notes = m.querySelector("#lt-notes").value;
-    d.labTests = d.labTests || [];
-    var ix = d.labTests.findIndex(function (x) {
+    appData.labTests = appData.labTests || [];
+    var ix = appData.labTests.findIndex(function (x) {
       return x.id === t.id;
     });
-    ix >= 0 ? (d.labTests[ix] = t) : d.labTests.push(t);
-    s();
-    Rt();
+    ix >= 0 ? (appData.labTests[ix] = t) : appData.labTests.push(t);
+    saveData();
+    closeForm();
     redrawPage();
     toast("Test saved.");
   });
@@ -1174,17 +1174,17 @@ function labTestForm(id) {
         del.textContent = "Press again — removes its results too";
         return;
       }
-      d.labTests = d.labTests.filter(function (x) {
+      appData.labTests = appData.labTests.filter(function (x) {
         return x.id !== t.id;
       });
-      (d.labDraws || []).forEach(function (dr) {
+      (appData.labDraws || []).forEach(function (dr) {
         if (dr.results && t.id in dr.results) {
           delete dr.results[t.id];
         }
       });
-      r.labTest = null;
-      s();
-      Rt();
+      ui.labTest = null;
+      saveData();
+      closeForm();
       redrawPage();
       toast("Test deleted.");
     });
@@ -1273,9 +1273,9 @@ function labParse(txt) {
    the lab's own facts (name, section, units, range) are updated, but your description, notes and
    targets are kept. On a draw you already have, results are added or updated one by one. */
 function labApply(j) {
-  d.labTests = d.labTests || [];
-  d.labDraws = d.labDraws || [];
-  d.metrics = d.metrics || [];
+  appData.labTests = appData.labTests || [];
+  appData.labDraws = appData.labDraws || [];
+  appData.metrics = appData.metrics || [];
   var nt = 0,
     ut = 0,
     nd = 0,
@@ -1284,7 +1284,7 @@ function labApply(j) {
     nm = 0,
     skipped = 0,
     bad = 0;
-  var maxOrder = d.labTests.reduce(function (a, x) {
+  var maxOrder = appData.labTests.reduce(function (a, x) {
     return Math.max(a, x.order || 0);
   }, 0);
   j.tests.forEach(function (t0) {
@@ -1313,15 +1313,15 @@ function labApply(j) {
       notes: labStr(t0.notes),
       order: labNumOrNull(t0.order),
     };
-    var ix = d.labTests.findIndex(function (x) {
+    var ix = appData.labTests.findIndex(function (x) {
       return x.id === id;
     });
     if (ix < 0) {
       inc.order = maxOrder + (inc.order === null ? nt + 1 : inc.order);
-      d.labTests.push(inc);
+      appData.labTests.push(inc);
       nt++;
     } else {
-      var ex = d.labTests[ix],
+      var ex = appData.labTests[ix],
         mg = Object.assign({}, ex);
       ["name", "group", "unit", "range"].forEach(function (k) {
         if (inc[k]) mg[k] = inc[k];
@@ -1335,12 +1335,12 @@ function labApply(j) {
       ["tlo", "thi"].forEach(function (k) {
         if (!labNumOk(ex[k]) && inc[k] !== null) mg[k] = inc[k];
       });
-      d.labTests[ix] = mg;
+      appData.labTests[ix] = mg;
       ut++;
     }
   });
   var known = {};
-  d.labTests.forEach(function (t) {
+  appData.labTests.forEach(function (t) {
     known[t.id] = 1;
   });
   var orphan = 0;
@@ -1373,26 +1373,26 @@ function labApply(j) {
       statin: labStr(r0.statin),
       notes: labStr(r0.notes),
     };
-    var ix = d.labDraws.findIndex(function (x) {
+    var ix = appData.labDraws.findIndex(function (x) {
       return x.id === id;
     });
     if (ix < 0) {
-      d.labDraws.push(Object.assign({ id: id }, flds, { results: res }));
+      appData.labDraws.push(Object.assign({ id: id }, flds, { results: res }));
       nd++;
     } else {
-      var ex = d.labDraws[ix],
+      var ex = appData.labDraws[ix],
         mg = Object.assign({}, ex);
       Object.keys(flds).forEach(function (k) {
         if (flds[k]) mg[k] = flds[k];
       });
       mg.results = Object.assign({}, ex.results || {}, res);
-      d.labDraws[ix] = mg;
+      appData.labDraws[ix] = mg;
       ud++;
     }
   });
   var haveDates = {},
     haveIds = {};
-  d.metrics.forEach(function (m) {
+  appData.metrics.forEach(function (m) {
     if (!/^home-/.test(m.id || "")) haveDates[m.date] = 1;
     haveIds[m.id] = 1;
   });
@@ -1402,13 +1402,13 @@ function labApply(j) {
       skipped++;
       return;
     }
-    d.metrics.push(m);
+    appData.metrics.push(m);
     nm++;
   });
-  if (nm) d.settings.trackWeight = true;
-  s();
-  r.labTest = null;
-  r.labHelp = false;
+  if (nm) appData.settings.trackWeight = true;
+  saveData();
+  ui.labTest = null;
+  ui.labHelp = false;
   redrawPage();
   var msg =
     "Imported " +
@@ -1441,23 +1441,23 @@ function labApply(j) {
         " not show. Ask the AI to send the whole answer again.",
     );
   if (unread.length || warn.length) {
-    Vt(
+    openForm(
       "Imported, with a few things to check",
       '<p style="margin:0 0 12px">' +
-        Ht(msg) +
+        esc(msg) +
         "</p>" +
         (unread.length
           ? '<p style="margin:0 0 6px"><b>The AI could not read these clearly, so they were left out.</b> Type them in yourself with <b>Edit</b> on that draw (Draws view):</p><ul style="margin:0 0 12px;padding-left:20px">' +
             unread
               .map(function (x) {
-                return "<li>" + Ht(x) + "</li>";
+                return "<li>" + esc(x) + "</li>";
               })
               .join("") +
             "</ul>"
           : "") +
         warn
           .map(function (x) {
-            return '<p class="tiny" style="margin:0 0 8px;color:var(--due)">' + Ht(x) + "</p>";
+            return '<p class="tiny" style="margin:0 0 8px;color:var(--due)">' + esc(x) + "</p>";
           })
           .join(""),
       '<button class="btn" data-close>OK</button>',
@@ -1482,21 +1482,21 @@ function labImport(e) {
 }
 
 function labPasteForm() {
-  Vt(
+  openForm(
     "Paste from AI",
     '<p class="tiny muted" style="margin:0 0 10px">Paste the whole reply from the AI app, then press Import. It is fine if the paste includes the AI\'s own words before or after the data.</p>' +
       '<div class="field"><label for="lp-t">AI reply</label><textarea id="lp-t" spellcheck="false" autocapitalize="off" autocomplete="off" style="min-height:220px;font-family:var(--mono);font-size:12px" placeholder="{ &quot;format&quot;: &quot;korah-labs&quot;, …"></textarea></div>' +
       '<p class="tiny muted" style="margin:0">Importing adds to what is here. It never deletes a test or a draw, and it keeps your own targets and notes.</p>',
     '<button class="btn ghost" data-close>Cancel</button><button class="btn" id="lp-go">Import</button>',
   );
-  var m = Ot("#modal");
+  var m = qs("#modal");
   m.querySelector("#lp-go").addEventListener("click", function () {
     var p = labParse(m.querySelector("#lp-t").value);
     if (p.err) {
       toast(p.err);
       return;
     }
-    Rt();
+    closeForm();
     labApply(p.j);
   });
 }
@@ -1535,20 +1535,20 @@ async function labCopyPrompt(btn) {
 
 function labHelpView() {
   var synced = typeof SYNC_HERE !== "undefined" && SYNC_HERE;
-  var el = Bt('<div class="stack lab-root howto-wrap"></div>');
+  var el = htmlEl('<div class="stack lab-root howto-wrap"></div>');
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="head"><div><button class="btn ghost sm" id="lh-back" style="margin-bottom:8px">‹ Labs</button><h1>Fill in your labs with AI</h1>' +
         "<p>An AI chat app can read your lab reports and turn every result into text this page understands. You paste it in once and your whole history appears, charted. It saves typing in every number.</p></div></div>",
     ),
   );
   el.querySelector("#lh-back").addEventListener("click", function () {
-    r.labHelp = false;
+    ui.labHelp = false;
     redrawPage();
   });
 
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="panel howto"><h2>What you need</h2><div class="pbody"><ul>' +
         "<li><b>Your lab reports.</b> PDFs from your lab's patient portal work best. Clear, flat photos of paper reports also work.</li>" +
         "<li><b>An AI chat app that can read files</b>, such as Claude, ChatGPT or Gemini, on your phone or computer. The free versions handle a few reports at a time.</li>" +
@@ -1556,7 +1556,7 @@ function labHelpView() {
     ),
   );
 
-  var steps = Bt(
+  var steps = htmlEl(
     '<div class="panel howto"><h2>Step by step</h2><div class="pbody">' +
       "<p><b>1. Copy the instructions.</b> They tell the AI exactly how to lay out your results so this page can read them.</p>" +
       '<p><button class="btn" id="lh-copy">Copy the instructions</button></p>' +
@@ -1575,7 +1575,7 @@ function labHelpView() {
   el.appendChild(steps);
 
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="panel howto"><h2>Adding results later</h2><div class="pbody"><ul>' +
         "<li>When new bloodwork comes back, start a <b>new</b> chat, paste the same instructions and attach only the new report. Then Paste from AI as before.</li>" +
         "<li>Importing adds to what is here. It never deletes anything, and it keeps the targets and notes you set yourself.</li>" +
@@ -1585,7 +1585,7 @@ function labHelpView() {
   );
 
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="panel howto"><h2>If something goes wrong</h2><div class="pbody"><ul>' +
         "<li><b>The AI stops partway or says the answer is too long:</b> send fewer reports at a time and import each answer. They add together.</li>" +
         '<li><b>"That text could not be read":</b> part of the reply was not copied. Copy the whole block again, or ask the AI to send it again.</li>' +
@@ -1596,7 +1596,7 @@ function labHelpView() {
   );
 
   el.appendChild(
-    Bt(
+    htmlEl(
       '<div class="panel howto"><h2>Your privacy</h2><div class="pbody">' +
         "<p>Your reports go to the company that runs the AI app you choose. Before you upload, you can cover or crop out your name, health card number and address; the AI does not need them. Check that app's settings for whether your chats are used to train it.</p>" +
         "<p>Inside this app your labs are stored on this device with the rest of your log" +
@@ -1615,9 +1615,9 @@ document.addEventListener("click", function (e) {
   var b = e.target.closest && e.target.closest("[data-labhelp]");
   if (b) {
     e.preventDefault();
-    r.tab = "labs";
-    r.labTest = null;
-    r.labHelp = true;
+    ui.tab = "labs";
+    ui.labTest = null;
+    ui.labHelp = true;
     redrawPage();
   }
 });
@@ -1680,7 +1680,7 @@ function labCsv() {
           .join(",");
       })
       .join("\n");
-  Ea("labs-" + te() + ".csv", new Blob([csv], { type: "text/csv" }));
+  download("labs-" + todayIso() + ".csv", new Blob([csv], { type: "text/csv" }));
   toast("Spreadsheet downloaded.");
 }
 
@@ -1688,7 +1688,7 @@ function labCsv() {
 function histListBar() {
   var ids = Array.from(
     new Set(
-      (d.logs || [])
+      (appData.logs || [])
         .map(function (l) {
           return l.compoundId;
         })
@@ -1697,48 +1697,48 @@ function histListBar() {
   );
   var comps = ids
     .map(function (id) {
-      return { id: id, name: pt(id) || "Deleted compound" };
+      return { id: id, name: compoundName(id) || "Deleted compound" };
     })
     .sort(function (a, b) {
       return a.name.localeCompare(b.name);
     });
-  if (r.histComp && ids.indexOf(r.histComp) < 0) r.histComp = null;
-  var el = Bt('<div class="stack" style="gap:12px"></div>');
-  var bar = Bt(
+  if (ui.histComp && ids.indexOf(ui.histComp) < 0) ui.histComp = null;
+  var el = htmlEl('<div class="stack" style="gap:12px"></div>');
+  var bar = htmlEl(
     '<div class="lab-ctl"><label class="tiny muted" for="h-comp">Show</label><select id="h-comp" class="lab-q" style="width:auto;min-width:200px"><option value="">All compounds</option>' +
       comps
         .map(function (c) {
           return (
             '<option value="' +
-            Ht(c.id) +
+            esc(c.id) +
             '"' +
-            (c.id === r.histComp ? " selected" : "") +
+            (c.id === ui.histComp ? " selected" : "") +
             ">" +
-            Ht(c.name) +
+            esc(c.name) +
             "</option>"
           );
         })
         .join("") +
       "</select>" +
-      (r.histComp
+      (ui.histComp
         ? '<button class="btn ghost sm" id="h-all">Show all</button>'
         : '<span class="tiny muted">Tip: tap a compound name in the list to see only its shots.</span>') +
       "</div>",
   );
   bar.querySelector("#h-comp").addEventListener("change", function (e) {
-    r.histComp = e.target.value || null;
+    ui.histComp = e.target.value || null;
     redrawPage();
   });
   var all = bar.querySelector("#h-all");
   if (all)
     all.addEventListener("click", function () {
-      r.histComp = null;
+      ui.histComp = null;
       redrawPage();
     });
   el.appendChild(bar);
-  if (r.histComp) {
-    var L = d.logs.filter(function (l) {
-      return l.compoundId === r.histComp;
+  if (ui.histComp) {
+    var L = appData.logs.filter(function (l) {
+      return l.compoundId === ui.histComp;
     });
     var tk = L.filter(function (l) {
       return l.status === "taken";
@@ -1752,17 +1752,17 @@ function histListBar() {
     var runs = 0,
       prev = null;
     Array.from(new Set(tk)).forEach(function (dt) {
-      if (!prev || ae(prev, dt) > 21) runs++;
+      if (!prev || daysBetween(prev, dt) > 21) runs++;
       prev = dt;
     });
-    var c = Ce(r.histComp),
+    var c = compoundById(ui.histComp),
       mg = L.filter(function (l) {
         return l.status === "taken";
       }).reduce(function (a, l) {
-        return a + be(l.doseMg);
+        return a + toNum(l.doseMg);
       }, 0);
     el.appendChild(
-      Bt(
+      htmlEl(
         '<div class="panel lab-tile"><div class="lab-counts" style="margin:0">' +
           "<span><b>" +
           tk.length +
@@ -1770,12 +1770,12 @@ function histListBar() {
           (other ? '<span class="muted"><b>' + other + "</b> missed or skipped</span>" : "") +
           (tk.length
             ? '<span>First <b style="font-size:15px">' +
-              Ht(de(tk[0])) +
+              esc(fullDate(tk[0])) +
               '</b></span><span>Last <b style="font-size:15px">' +
-              Ht(de(tk[tk.length - 1])) +
+              esc(fullDate(tk[tk.length - 1])) +
               "</b></span>"
             : "") +
-          (mg ? '<span>Total <b style="font-size:15px">' + Ht($e(mg, c)) + "</b></span>" : "") +
+          (mg ? '<span>Total <b style="font-size:15px">' + esc(fmtAmount(mg, c)) + "</b></span>" : "") +
           (runs > 1 ? '<span class="muted">' + runs + " separate runs (gaps over 21 days)</span>" : "") +
           "</div></div>",
       ),
@@ -1786,7 +1786,7 @@ function histListBar() {
 document.addEventListener("click", function (e) {
   var b = e.target.closest && e.target.closest("[data-hcomp]");
   if (b) {
-    r.histComp = b.dataset.hcomp;
+    ui.histComp = b.dataset.hcomp;
     redrawPage();
   }
 });
