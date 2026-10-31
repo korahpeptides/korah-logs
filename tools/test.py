@@ -409,6 +409,19 @@ with sync_playwright() as pw:
                   line: (document.querySelector('#view .appkind-line')||{}).textContent || '', title: document.title}; }""")
                 want = "Personal" if variant == "personal" else "Community"
                 check(f"{tag}: side menu and Settings say this is the {want} app", ak["brand"] == want and want in ak["line"] and ak["title"].endswith(want), ak)
+                # b83: eye button on the sync password and passphrase
+                ey = pg.evaluate("""async () => { ui.tab = 'settings'; redrawPage(); await new Promise(r => setTimeout(r, 30));
+                  const pw = document.querySelector('#sy-pw'), ph = document.querySelector('#sy-ph');
+                  const has = [pw, ph].every(el => el && el.parentNode.classList.contains('pw-wrap') && el.parentNode.querySelector('.pw-eye'));
+                  ph.value = 'secret-pass'; const eye = ph.parentNode.querySelector('.pw-eye'); eye.click();
+                  const shown = ph.type === 'text'; eye.click(); const hidden = ph.type === 'password'; eye.click();
+                  document.activeElement && document.activeElement.blur(); redrawPage(1); await new Promise(r => setTimeout(r, 30));
+                  const ph2 = document.querySelector('#sy-ph');
+                  return {has, shown, hidden, kept: ph2.value === 'secret-pass', reEyed: !!ph2.parentNode.querySelector('.pw-eye'),
+                    once: document.querySelectorAll('#sy-ph ~ .pw-eye').length === 1}; }""")
+                check(f"{tag}: password and passphrase have an eye button that shows and hides them", ey["has"] and ey["shown"] and ey["hidden"] and ey["once"], ey)
+                check(f"{tag}: a shown passphrase survives a sync redraw and gets its eye back", ey["kept"] and ey["reEyed"], ey)
+                pg.evaluate("document.querySelector('#sy-ph').value = ''")
                 # b79: old deletion markers are dropped after 90 days, "__" keys always
                 tb = pg.evaluate("""() => { const old = Date.now() - 91*864e5, recent = Date.now() - 5*864e5;
                   const a = JSON.parse(JSON.stringify(appData)); a._del = {gone_old: old, gone_new: recent, __settings: recent};

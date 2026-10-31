@@ -1,5 +1,5 @@
 {
-  "build": 82,
+  "build": 83,
   "date": "2026-10-31",
-  "note": "Changing a protocol's days applies from today, so past days no longer show missed doses"
+  "note": "Eye button on password and passphrase boxes to show what you typed"
 }

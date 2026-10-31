@@ -1709,3 +1709,34 @@ body::before {
   border-radius: 6px;
   font-size: 13px;
 }
+/* b83: eye button on password and passphrase boxes */
+.pw-wrap {
+  position: relative;
+  display: block;
+}
+.pw-wrap input {
+  padding-right: 40px;
+}
+.pw-eye {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.pw-eye:hover,
+.pw-eye[aria-pressed="true"] {
+  color: var(--ink-2);
+}
+.pw-eye svg {
+  width: 18px;
+  height: 18px;
+}
