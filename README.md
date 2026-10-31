@@ -67,6 +67,7 @@ npm test        # builds both files, runs tools/test.py on both (headless) and t
 19. Personal and Community look different on purpose (b79): amber vs blue stripe and badge, page title, and a line in Settings and the sync box. `APP_KIND` / `APP_OTHER`.
 20. Schedule history (b82): `isDue()` uses `patternFor(p, date)`. Changing a protocol's days or pattern (not the phase layout) sets `schedFrom` to today and saves the old pattern in `schedHist`, so past days keep it. Days before `schedFrom` with no saved pattern are not due. The form shows it as "Pattern in use since".
 21. Password boxes (b83): every `input[type=password]` gets a show/hide eye button automatically (`addPasswordEyes`, `wrapPasswordBox`). New password boxes need nothing extra. A redraw puts them back to hidden. On the empty passphrase box the eye fills in the one saved on this device (`savedSecretFor`, b84); the sign-in password is never saved, so it has nothing to show.
+22. Sign-in form (b85): email and password are inside `<form id="sy-form">` (passphrase boxes stay outside it, so password managers don't save the passphrase as the password). Sign in / Create account submit the form; the submit is cancelled and runs the sign-in. This lets iCloud Keychain / Google Password Manager save and fill the password while the app still never stores it.
 8. Sync switches on only at `my.korahpeptides.com` or a `rickspeptidetracker.*` address (`OWN_SYNC_SITE`). The community build has its own shared Firebase (`COMMUNITY_FIREBASE`, `SHARED_SYNC`).
 
 ## Main names in `src/js/app.js`

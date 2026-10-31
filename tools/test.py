@@ -432,6 +432,20 @@ with sync_playwright() as pw:
                   had === null ? localStorage.removeItem('protocol:pass') : localStorage.setItem('protocol:pass', had);
                   return {empty, shown, back, pwEmpty}; }""")
                 check(f"{tag}: eye shows the passphrase saved on this device, and hides it again", all(sv.values()), sv)
+                # b85: email and password are in a real form (so password managers save them); Sign in and Enter submit it
+                fm = pg.evaluate("""async () => { ui.tab = 'settings'; redrawPage(); await new Promise(r => setTimeout(r, 30));
+                  const f = document.querySelector('#sy-form'); let subs = 0; f && f.addEventListener('submit', () => subs++);
+                  const inForm = !!f && f.tagName === 'FORM' && f.contains(document.querySelector('#sy-em')) && f.contains(document.querySelector('#sy-pw'))
+                    && !f.contains(document.querySelector('#sy-ph'));
+                  const names = document.querySelector('#sy-em').name === 'email' && document.querySelector('#sy-pw').name === 'password';
+                  document.querySelector('#sy-in').click(); await new Promise(r => setTimeout(r, 30));
+                  const t1 = document.querySelector('#toast').textContent;
+                  document.querySelector('#toast').textContent = '';
+                  document.querySelector('#sy-new').click(); await new Promise(r => setTimeout(r, 30));
+                  const t2 = document.querySelector('#toast').textContent;
+                  return {inForm, names, subs, t1, t2, url: location.href.endsWith('index.html')}; }""")
+                check(f"{tag}: sign-in fields are a form password managers can save", fm["inForm"] and fm["names"], fm)
+                check(f"{tag}: Sign in and Create account submit the form without leaving the page", fm["subs"] == 2 and "email and password" in fm["t1"] and "email and password" in fm["t2"] and fm["url"], fm)
                 # b79: old deletion markers are dropped after 90 days, "__" keys always
                 tb = pg.evaluate("""() => { const old = Date.now() - 91*864e5, recent = Date.now() - 5*864e5;
                   const a = JSON.parse(JSON.stringify(appData)); a._del = {gone_old: old, gone_new: recent, __settings: recent};
