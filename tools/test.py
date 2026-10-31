@@ -275,6 +275,11 @@ with sync_playwright() as pw:
                 check(f"{tag}: records written before b77 still read", cz["old1"] and cz["old2"], cz)
                 check(f"{tag}: compressed record under a quarter of the old size", cz["packed"] < cz["oldPacked"] / 4, cz)
                 print(f"     size: {cz['oldPacked']//1024} KB before b77 -> {cz['packed']//1024} KB")
+                # b87: Change email button is on the sync panel and refuses when signed out
+                ce = pg.evaluate("""async () => { const h = document.createElement('div'); let msg = ''; const old = toast; toast = (m) => msg = m;
+                  try { await changeSyncEmail('new@example.com', 'pw123456'); } finally { toast = old; }
+                  return {fn: typeof changeSyncEmail === 'function', msg}; }""")
+                check(f"{tag}: Change email refuses when signed out", ce["fn"] and "Sign in" in ce["msg"], ce)
                 # b77: settings merge one by one
                 sm = pg.evaluate("""() => {
                   const a = mergeSettings({x:1, y:1, _m:100, _mk:{x:100, y:50}}, {x:2, y:2, _m:120, _mk:{x:60, y:120}});

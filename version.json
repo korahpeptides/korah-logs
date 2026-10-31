@@ -1,5 +1,5 @@
 {
-  "build": 86,
+  "build": 87,
   "date": "2026-10-31",
-  "note": "Skip button for doses on Today; skipped doses don't count as missed"
+  "note": "Change email button in Sync settings; keeps the same account and data"
 }
