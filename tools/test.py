@@ -420,6 +420,25 @@ with sync_playwright() as pw:
 html = {v: open(os.path.join(ROOT, "dist", v, "index.html"), encoding="utf-8").read() for v in ["personal", "community"]}
 check("QR library only in personal", ("qrcode-generator" in html["personal"]) and ("qrcode-generator" not in html["community"]))
 check("analytics tag only in community", ("cloudflareinsights" in html["community"]) and ("cloudflareinsights" not in html["personal"]))
+# b80: the product boundary. Personal-only features must not be in the community file at all
+# (not just hidden), and must still be in the personal file.
+PERSONAL_ONLY = {
+    "label CoA/QR address field": 'id="lf-coa"',
+    "QR address box": "QR address for Niimbot",
+    "label layout editor": "lb-laytog",
+    "Insights tab code": "function insView",
+    "Insights access key field": "ins-key",
+    "Insights AI request header": "X-App-Key",
+    "Insights AI Worker hint": "protocol-ai",
+    "statin wording on draws": "Statin / ezetimibe",
+}
+for what, marker in PERSONAL_ONLY.items():
+    check(f"separation: {what} in personal only", marker in html["personal"] and marker not in html["community"], marker)
+COMMUNITY_ONLY = {"medications wording on draws": "Medications at the time", "community title": "<title>Protocol — Community</title>"}
+for what, marker in COMMUNITY_ONLY.items():
+    check(f"separation: {what} in community only", marker in html["community"] and marker not in html["personal"], marker)
+check("separation: no korahpeptides.com address is needed by either file",
+      all("korahpeptides.com/" not in h.replace("coa.korahpeptides.com/", "") for h in html.values()))
 check("copyright notice kept in both", all(h.count("© 2026 Korah Peptides") >= 3 for h in html.values()))
 check("label QR library bundled, not loaded from the internet", "cdnjs" not in html["personal"] and "var qrcode" in html["personal"].replace("var qrcode=", "var qrcode"))
 check("password never saved on the device", all('setItem("protocol:pw"' not in h for h in html.values()))

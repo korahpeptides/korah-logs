@@ -1,5 +1,5 @@
 {
-  "build": 79,
+  "build": 80,
   "date": "2026-10-30",
-  "note": "Daily copies on this device, Personal/Community labels, safer sync, protocol draft fixed"
+  "note": "Insights code removed from the community file, AI Worker locked to the personal app, Firebase rules, separation tests"
 }

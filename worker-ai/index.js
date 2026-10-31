@@ -9,12 +9,10 @@
 const DEFAULT_MODEL = "claude-haiku-5-5";
 const ALLOWED_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5"];
 const MAX_TOKENS = 8000;
-const ALLOWED_ORIGINS = [
-  "https://my.korahpeptides.com",
-  "https://app.korahpeptides.com",
-  "https://public-peptide-tracker.korahpeptides.com",
-  "https://rickspeptidetracker.rdguindon.workers.dev",
-];
+// Only the personal build has Insights, so only its addresses are allowed (b80: the community
+// addresses were removed). The access key is typed into the app and kept in its encrypted settings;
+// it is never in the page file.
+const ALLOWED_ORIGINS = ["https://rickspeptidetracker.rdguindon.workers.dev", "https://my.korahpeptides.com"];
 
 function cors(origin) {
   const h = {
@@ -44,6 +42,8 @@ export default {
     const origin = req.headers.get("Origin") || "";
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(origin) });
     if (req.method !== "POST") return reply(405, { error: { message: "Use POST." } }, origin);
+    // b80: a browser on any other site is refused before anything is sent to Anthropic.
+    if (origin && !ALLOWED_ORIGINS.includes(origin)) return reply(403, { error: { message: "Not allowed from this site." } }, origin);
     if (!env.APP_KEY || !env.ANTHROPIC_API_KEY)
       return reply(500, { error: { message: "The Worker is missing its APP_KEY or ANTHROPIC_API_KEY secret." } }, origin);
     if (!sameKey(req.headers.get("X-App-Key") || "", env.APP_KEY)) return reply(401, { error: { message: "Wrong access key." } }, origin);

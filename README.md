@@ -11,7 +11,8 @@ The peptide tracker (personal build "rpt" at rickspeptidetracker.rdguindon.worke
 - **`build.mjs`** makes `dist/personal/index.html` and `dist/community/index.html`. It scrambles the code and keeps the `/*! © Korah Peptides */` notices. It also bundles third-party libraries marked `<!-- @lib:NAME -->` (the label QR library, from `node_modules`) and writes `sw.js` next to each page from `src/sw.js`.
 - **`src/sw.js`** is the offline copy (b77). The page is fetched fresh whenever there is a connection and kept in a cache; with no connection (or no answer in 6 s) the cached copy opens. Firebase code and fonts are cached on first load. Sync, Insights and analytics are not touched.
 - **One source, two builds.** `COMMUNITY` is `false` in the personal build and `true` in the community build. Code behind the other value is dropped. In `page.html`, `<!-- @personal -->…<!-- @end -->` appears only in the personal file and `<!-- @community -->…<!-- @end -->` only in the community file.
-  - **The community build has no:** label QR code, lot line or CoA link field (`Pn`, the label drawing, the label form); QR library; Insights tab.
+  - **The community build has no:** label QR code, lot line or CoA link field (`Pn`, the label drawing, the label form); QR library; label layout editor; Insights (from b80 `insights.js` and `insights.css` are left out of the file entirely, not just hidden).
+  - `tools/test.py` checks this boundary on the built files ("separation:" checks). Add a line there for every new personal-only feature.
   - **The community build has:** "Medications at the time" instead of "Statin / ezetimibe"; the Cloudflare Web Analytics tag.
 - **`version.json`** holds the build number, date and note shown at the bottom of the side menu and in Settings → Version. Bump it with every change. Personal and community always share a number.
 - **Deploys are automatic.** Three Workers are connected to this repo in Cloudflare (Workers Builds). A push to `main` rebuilds and deploys all three:
@@ -23,6 +24,8 @@ The peptide tracker (personal build "rpt" at rickspeptidetracker.rdguindon.worke
 | `protocol-ai` | protocol-ai.rdguindon.workers.dev | (none) | `npx wrangler deploy --config wrangler.ai.jsonc` |
 
 - **Kept independent of korahpeptides.com.** The wrangler files set no custom domains, so deploys never depend on that domain. Don't add korahpeptides.com routes back to them.
+- **`protocol-ai` only answers the personal app** (b80): a browser request from any other site is refused before anything is sent to Anthropic.
+- **Firebase rules** are in `firebase/firestore.rules`. They are not deployed by a push: paste them into each Firebase project (Firestore Database → Rules → Publish) whenever they change.
 - **`protocol-ai` secrets** live in Cloudflare under Settings → Runtime → Variables and Secrets: `APP_KEY` (matches the access key typed into Insights) and `ANTHROPIC_API_KEY`. It only forwards the fields the app uses. It accepts `claude-haiku-5-5` (the default) or `claude-sonnet-5-5`, and caps the reply length.
 
 ## Before every push

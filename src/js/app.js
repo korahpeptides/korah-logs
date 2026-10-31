@@ -4846,7 +4846,8 @@ const Ha = {
   library: Aa,
   weight: Ca,
   labs: labView,
-  insights: insView,
+  // b80: Insights code is left out of the community file entirely (page.html), so no reference to it there.
+  ...(COMMUNITY ? {} : { insights: insView }),
   settings: qa,
 };
 function redrawPage(k) {

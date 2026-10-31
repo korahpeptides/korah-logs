@@ -1,0 +1,44 @@
+rules_version = '2';
+
+// Firestore security rules for Korah Logs sync.
+// Use the same rules on BOTH Firebase projects:
+//   - "Korah Peptides" (korah-peptides) - community build, members sign up themselves
+//   - "Rick's Peptide Tracker"           - personal build
+// Paste in: Firebase console -> the project -> Firestore Database -> Rules tab -> Publish.
+//
+// What they allow:
+//   - Each signed-in person can read, write and delete ONE record: logs/<their own user id>.
+//   - Nobody can read or touch anyone else's record, or anything else in the database.
+//   - The record must be the app's encrypted sync format (enc: 1, salt, iv, body, optional z
+//     and updatedAt) and under 1 MB. Unencrypted records are refused: since b78 the app always
+//     encrypts with the sync passphrase.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function isSyncRecord(r) {
+      return r.keys().hasOnly(['enc', 'z', 'salt', 'iv', 'body', 'updatedAt'])
+        && r.keys().hasAll(['enc', 'salt', 'iv', 'body'])
+        && r.enc == 1
+        && r.salt is string && r.salt.size() < 100
+        && r.iv is string && r.iv.size() < 100
+        && r.body is string && r.body.size() < 1000000
+        && (!('z' in r) || r.z == 1)
+        && (!('updatedAt' in r) || r.updatedAt is number);
+    }
+
+    match /logs/{uid} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && isSyncRecord(request.resource.data);
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
