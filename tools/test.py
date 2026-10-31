@@ -422,6 +422,16 @@ with sync_playwright() as pw:
                 check(f"{tag}: password and passphrase have an eye button that shows and hides them", ey["has"] and ey["shown"] and ey["hidden"] and ey["once"], ey)
                 check(f"{tag}: a shown passphrase survives a sync redraw and gets its eye back", ey["kept"] and ey["reEyed"], ey)
                 pg.evaluate("document.querySelector('#sy-ph').value = ''")
+                # b84: an empty passphrase box shows the passphrase saved on this device, and empties again when hidden
+                sv = pg.evaluate("""async () => { const had = localStorage.getItem('protocol:pass'); localStorage.setItem('protocol:pass', 'saved-pass-123');
+                  ui.tab = 'settings'; redrawPage(); await new Promise(r => setTimeout(r, 30));
+                  const ph = document.querySelector('#sy-ph'), eye = ph.parentNode.querySelector('.pw-eye');
+                  const empty = ph.value === ''; eye.click(); const shown = ph.type === 'text' && ph.value === 'saved-pass-123';
+                  eye.click(); const back = ph.type === 'password' && ph.value === '';
+                  const pw = document.querySelector('#sy-pw'); pw.parentNode.querySelector('.pw-eye').click(); const pwEmpty = pw.value === '';
+                  had === null ? localStorage.removeItem('protocol:pass') : localStorage.setItem('protocol:pass', had);
+                  return {empty, shown, back, pwEmpty}; }""")
+                check(f"{tag}: eye shows the passphrase saved on this device, and hides it again", all(sv.values()), sv)
                 # b79: old deletion markers are dropped after 90 days, "__" keys always
                 tb = pg.evaluate("""() => { const old = Date.now() - 91*864e5, recent = Date.now() - 5*864e5;
                   const a = JSON.parse(JSON.stringify(appData)); a._del = {gone_old: old, gone_new: recent, __settings: recent};

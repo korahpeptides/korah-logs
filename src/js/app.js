@@ -5014,12 +5014,27 @@ function wrapPasswordBox(input) {
   btn.addEventListener("mousedown", (e) => e.preventDefault()); // keep the cursor in the box
   btn.addEventListener("click", () => {
     const show = "password" === input.type;
+    // b84: the passphrase box is drawn empty even when one is saved on this device; showing it fills in the saved one,
+    // hiding it again empties the box (if untouched) so it goes back to "already set on this device".
+    const saved = savedSecretFor(input);
+    if (show && !input.value && saved) (input.value = saved), (input.dataset.filled = "1");
+    else if (!show && input.dataset.filled && input.value === saved) (input.value = ""), delete input.dataset.filled;
     input.type = show ? "text" : "password";
     btn.innerHTML = pwEyeIcon(show);
     btn.setAttribute("aria-label", show ? "Hide" : "Show");
     btn.setAttribute("aria-pressed", show ? "true" : "false");
   });
   wrap.appendChild(btn);
+}
+// The saved value a password box can show when it is empty. Only the sync passphrase is kept on the device
+// (the sign-in password never is, rule 13).
+function savedSecretFor(input) {
+  if ("sy-ph" !== input.id) return "";
+  try {
+    return localStorage.getItem("protocol:pass") || "";
+  } catch (e) {
+    return "";
+  }
 }
 function addPasswordEyes() {
   const scan = () => document.querySelectorAll('input[type="password"]:not([data-eye])').forEach(wrapPasswordBox);
