@@ -1150,8 +1150,9 @@ function adherence(e = 30) {
     for (const a of appData.protocols) {
       if (!isDue(a, e)) continue;
       for (const x of doseSlots(a, e)) {
-        t++;
         const s = logFor(a.id, e, x);
+        if (s && "skipped" === s.status) continue; // b86: a skip on purpose doesn't count against adherence
+        t++;
         s && "taken" === s.status && n++;
       }
     }
@@ -1728,7 +1729,7 @@ function todayView() {
       ds = sl ? ` data-slot="${sl}"` : "";
     c.appendChild(
       htmlEl(
-        `<div class="schedrow" data-s="${o}">\n      <span class="schedbar"></span>\n      <button class="schedinner" data-logfor="${e.id}"${ds}>\n        <span class="schedtime">${s ? `<b>${s.t}</b><small>${s.ap}</small>` : sl ? `<b>${slotLabel(sl)}</b>` : "<i>Any<br>time</i>"}</span>\n        <span class="schedmain"><b>${esc(n.name)}</b>\n          <span>${sl ? slotLabel(sl) + " dose · " : ""}${esc(fmt(toNum(a.dose), 3))}${esc("iu" === a.unit ? "IU" : a.unit)}${a.units ? ` · ${fmt(a.units, a.units % 1 ? 1 : 0)} units` : ""}${a.phase && a.phase.of ? ` · phase ${a.phase.phase}/${a.phase.of}` : ""}</span></span>\n      </button>\n      <span class="schedact">${"taken" === o ? `<button class="donebtn" data-undop="${e.id}"${ds} title="Logged — tap to undo">✓</button>` : "missed" === o ? `<button class="skipbtn" data-undop="${e.id}"${ds} title="Missed — tap to clear">✕</button>` : `<button class="logbtn" data-logp="${e.id}"${ds}>Log</button>`}</span>\n    </div>`,
+        `<div class="schedrow" data-s="${o}">\n      <span class="schedbar"></span>\n      <button class="schedinner" data-logfor="${e.id}"${ds}>\n        <span class="schedtime">${s ? `<b>${s.t}</b><small>${s.ap}</small>` : sl ? `<b>${slotLabel(sl)}</b>` : "<i>Any<br>time</i>"}</span>\n        <span class="schedmain"><b>${esc(n.name)}</b>\n          <span>${sl ? slotLabel(sl) + " dose · " : ""}${esc(fmt(toNum(a.dose), 3))}${esc("iu" === a.unit ? "IU" : a.unit)}${a.units ? ` · ${fmt(a.units, a.units % 1 ? 1 : 0)} units` : ""}${a.phase && a.phase.of ? ` · phase ${a.phase.phase}/${a.phase.of}` : ""}</span></span>\n      </button>\n      <span class="schedact">${"taken" === o ? `<button class="donebtn" data-undop="${e.id}"${ds} title="Logged — tap to undo">✓</button>` : "missed" === o ? `<button class="skipbtn" data-undop="${e.id}"${ds} title="Missed — tap to clear">✕</button>` : "skipped" === o ? `<button class="skippedbtn" data-undop="${e.id}"${ds} title="Skipped — tap to undo">Skipped</button>` : `<button class="skipdose" data-skipp="${e.id}"${ds} title="Skip this dose on purpose">Skip</button><button class="logbtn" data-logp="${e.id}"${ds}>Log</button>`}</span>\n    </div>`,
       ),
     );
   }
@@ -2236,10 +2237,14 @@ function protocolsView() {
         ? openSlotsToday(t).length
           ? null
           : (() => {
-              const m = doseSlots(t).filter((x) => "taken" !== logFor(t.id, todayIso(), x).status).length;
+              const st = doseSlots(t).map((x) => logFor(t.id, todayIso(), x).status),
+                m = st.filter((x) => "missed" === x).length,
+                k = st.filter((x) => "skipped" === x).length;
               return {
-                status: m ? "missed" : "taken",
-                txt: m ? (2 === m ? "Both missed today" : "1 missed today") : "Both doses logged",
+                status: m ? "missed" : k === st.length ? "skipped" : "taken",
+                txt: m
+                  ? 2 === m ? "Both missed today" : "1 missed today"
+                  : k === st.length ? "Both skipped today" : k ? "1 logged, 1 skipped" : "Both doses logged",
               };
             })()
         : logFor(t.id, todayIso()),
@@ -2259,7 +2264,7 @@ function protocolsView() {
     const p = nextDoseChange(t, todayIso());
     n.appendChild(
       htmlEl(
-        `<div class="panel"><div class="pbody">\n      <div class="spread" style="margin-bottom:2px"><b style="font-size:17px">${esc(s.name)}</b>\n        ${t.active ? (c ? '<span class="pill">Resting</span>' : i ? `<span class="pill ${"taken" === i.status ? "done" : "late"}">${i.txt || ("taken" === i.status ? "Logged today" : "Missed today")}</span>` : isDue(t, todayIso()) ? `<span class="pill due">${t.split && 1 === openSlotsToday(t).length ? slotLabel(openSlotsToday(t)[0]) + " dose due" : "Due today"}</span>` : '<span class="pill">Scheduled</span>') : '<span class="pill">Paused</span>'}</div>\n      <div class="muted tiny" style="margin-bottom:12px">${esc(fmt(toNum(o.dose), 3))} ${esc("iu" === o.unit ? "IU" : o.unit)}${o.phase && o.phase.of ? ` · phase ${o.phase.phase} of ${o.phase.of}${o.phase.holding ? ", held" : ""}` : ""} · ${esc(scheduleText(t))} · ${esc(t.route || "SubQ")}</div>\n      ${blendText(t, o.dose, o.unit) ? `<div class="blsplit">${esc(blendText(t, o.dose, o.unit))}</div>` : ""}\n      ${blankPhaseCount(t) ? `<div class="note warn" style="margin:0 0 12px"><span>⚠</span><span>${blankPhaseCount(t)} titration step${1 === blankPhaseCount(t) ? " has" : "s have"} no length, so ${1 === blankPhaseCount(t) ? "it is" : "they are"} being skipped and the dose above is off. Tap Edit and give ${1 === blankPhaseCount(t) ? "it" : "each of them"} a duration.</span></div>` : ""}\n      ${c ? `<div class="note" style="margin:0 0 12px"><span>ⓘ</span><span>Resting${u ? ` until ${esc(shortDateYear(u))}` : ""}. Nothing is scheduled meanwhile.</span></div>` : ""}\n      ${p ? `<div class="tiny muted" style="margin:-6px 0 12px">Next change ${esc(shortDateYear(p.date))}: ${fmt(toNum(p.dose.dose), 3)} ${"iu" === p.dose.unit ? "IU" : p.dose.unit} · ${esc(schedKindText(scheduleOn(t, p.date)))}</div>` : ""}\n      <div class="grid2" style="gap:10px">\n        <div><div class="eyebrow" style="margin-bottom:2px">Next shot</div><b>${d ? esc(relativeDay(d)) : "—"}</b></div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Length</div>\n          <b>${toNum(t.weeks) ? esc(t.weeks) + " weeks" : "Open ended"}</b>\n          ${null !== l ? `<div class="tiny muted">${l <= 0 ? "Finished" : fmt(l, 1) + " weeks left"}</div>` : ""}</div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Draw</div><b class="mono">${t.pen ? "Pen" : o.units ? fmt(o.units, 1) + "u" : "—"}</b>\n          <div class="tiny muted">${t.pen ? "nothing to draw" : o.batch ? esc(batchText(o.batch)) : "no vial in stock"}</div></div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Stock</div><b class="mono">${esc(fmtAmount(stockMg(t.compoundId), s))}</b></div>\n      </div>\n      ${toNum(t.weeks) ? `<div class="bar" style="margin:12px 0 0"><i style="width:${Math.max(0, Math.min(100, 100 * (1 - (l || 0) / toNum(t.weeks))))}%;background:${s.color}"></i></div>` : ""}\n      <div class="row" style="margin-top:14px">\n        <button class="btn" style="flex:1" data-logfor="${t.id}">Log a shot</button>\n        <button class="btn ghost" data-pauseproto="${t.id}">${t.active ? "Pause" : "Resume"}</button>\n        <button class="btn ghost" data-editproto="${t.id}">Edit</button></div>\n    </div></div>`,
+        `<div class="panel"><div class="pbody">\n      <div class="spread" style="margin-bottom:2px"><b style="font-size:17px">${esc(s.name)}</b>\n        ${t.active ? (c ? '<span class="pill">Resting</span>' : i ? `<span class="pill ${"taken" === i.status ? "done" : "skipped" === i.status ? "" : "late"}">${i.txt || ("taken" === i.status ? "Logged today" : "skipped" === i.status ? "Skipped today" : "Missed today")}</span>` : isDue(t, todayIso()) ? `<span class="pill due">${t.split && 1 === openSlotsToday(t).length ? slotLabel(openSlotsToday(t)[0]) + " dose due" : "Due today"}</span>` : '<span class="pill">Scheduled</span>') : '<span class="pill">Paused</span>'}</div>\n      <div class="muted tiny" style="margin-bottom:12px">${esc(fmt(toNum(o.dose), 3))} ${esc("iu" === o.unit ? "IU" : o.unit)}${o.phase && o.phase.of ? ` · phase ${o.phase.phase} of ${o.phase.of}${o.phase.holding ? ", held" : ""}` : ""} · ${esc(scheduleText(t))} · ${esc(t.route || "SubQ")}</div>\n      ${blendText(t, o.dose, o.unit) ? `<div class="blsplit">${esc(blendText(t, o.dose, o.unit))}</div>` : ""}\n      ${blankPhaseCount(t) ? `<div class="note warn" style="margin:0 0 12px"><span>⚠</span><span>${blankPhaseCount(t)} titration step${1 === blankPhaseCount(t) ? " has" : "s have"} no length, so ${1 === blankPhaseCount(t) ? "it is" : "they are"} being skipped and the dose above is off. Tap Edit and give ${1 === blankPhaseCount(t) ? "it" : "each of them"} a duration.</span></div>` : ""}\n      ${c ? `<div class="note" style="margin:0 0 12px"><span>ⓘ</span><span>Resting${u ? ` until ${esc(shortDateYear(u))}` : ""}. Nothing is scheduled meanwhile.</span></div>` : ""}\n      ${p ? `<div class="tiny muted" style="margin:-6px 0 12px">Next change ${esc(shortDateYear(p.date))}: ${fmt(toNum(p.dose.dose), 3)} ${"iu" === p.dose.unit ? "IU" : p.dose.unit} · ${esc(schedKindText(scheduleOn(t, p.date)))}</div>` : ""}\n      <div class="grid2" style="gap:10px">\n        <div><div class="eyebrow" style="margin-bottom:2px">Next shot</div><b>${d ? esc(relativeDay(d)) : "—"}</b></div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Length</div>\n          <b>${toNum(t.weeks) ? esc(t.weeks) + " weeks" : "Open ended"}</b>\n          ${null !== l ? `<div class="tiny muted">${l <= 0 ? "Finished" : fmt(l, 1) + " weeks left"}</div>` : ""}</div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Draw</div><b class="mono">${t.pen ? "Pen" : o.units ? fmt(o.units, 1) + "u" : "—"}</b>\n          <div class="tiny muted">${t.pen ? "nothing to draw" : o.batch ? esc(batchText(o.batch)) : "no vial in stock"}</div></div>\n        <div><div class="eyebrow" style="margin-bottom:2px">Stock</div><b class="mono">${esc(fmtAmount(stockMg(t.compoundId), s))}</b></div>\n      </div>\n      ${toNum(t.weeks) ? `<div class="bar" style="margin:12px 0 0"><i style="width:${Math.max(0, Math.min(100, 100 * (1 - (l || 0) / toNum(t.weeks))))}%;background:${s.color}"></i></div>` : ""}\n      <div class="row" style="margin-top:14px">\n        <button class="btn" style="flex:1" data-logfor="${t.id}">Log a shot</button>\n        <button class="btn ghost" data-pauseproto="${t.id}">${t.active ? "Pause" : "Resume"}</button>\n        <button class="btn ghost" data-editproto="${t.id}">Edit</button></div>\n    </div></div>`,
       ),
     );
   }
@@ -3163,7 +3168,7 @@ function calendarView() {
     s = new Date(t, n, 1 - a),
     o = htmlEl('<div class="split"></div>'),
     i = htmlEl(
-      `<div class="panel" style="overflow:hidden">\n    <h2><button class="btn ghost sm" id="pm">‹</button>\n      <b style="font-weight:600;color:var(--ink)">${e.toLocaleDateString(void 0, { month: "long", year: "numeric" })}</b>\n      <button class="btn ghost sm" id="nm">›</button></h2>\n    <div class="cal" id="cal"></div>\n    <div class="legend">\n      <span><i class="cdot" data-s="taken"></i>Taken</span>\n      <span><i class="cdot"></i>Scheduled</span>\n      <span><i class="cdot" data-s="missed"></i>Missed</span></div></div>`,
+      `<div class="panel" style="overflow:hidden">\n    <h2><button class="btn ghost sm" id="pm">‹</button>\n      <b style="font-weight:600;color:var(--ink)">${e.toLocaleDateString(void 0, { month: "long", year: "numeric" })}</b>\n      <button class="btn ghost sm" id="nm">›</button></h2>\n    <div class="cal" id="cal"></div>\n    <div class="legend">\n      <span><i class="cdot" data-s="taken"></i>Taken</span>\n      <span><i class="cdot"></i>Scheduled</span>\n      <span><i class="cdot" data-s="missed"></i>Missed</span>\n      <span><i class="cdot" data-s="skipped"></i>Skipped</span></div></div>`,
     );
   (i.querySelector("#pm").addEventListener("click", () => {
     ((ui.calMonth = isoDate(new Date(t, n - 1, 1)).slice(0, 7)), redrawPage());
@@ -3185,7 +3190,7 @@ function calendarView() {
             doseSlots(e, a).map((x) => {
               const t = slotStatus(e.id, a, x),
                 n = compoundById(e.compoundId);
-              return `<span class="cdot" data-s="${t}" style="${"taken" === t ? `background:${n.color};border-color:${n.color}` : "missed" === t ? "background:var(--alert)" : `border-color:${n.color}`}"></span>`;
+              return `<span class="cdot" data-s="${t}" style="${"taken" === t ? `background:${n.color};border-color:${n.color}` : "missed" === t ? "background:var(--alert)" : "skipped" === t ? "" : `border-color:${n.color}`}"></span>`;
             }),
           )
           .join("") +
@@ -3219,7 +3224,7 @@ function calendarView() {
         o = `${esc(fmt(toNum(a.dose), 3))} ${esc("iu" === a.unit ? "IU" : a.unit)}${a.units ? ` · ${fmt(a.units, a.units % 1 ? 1 : 0)}u` : ""} scheduled${s && s.of ? ` · phase ${s.phase}/${s.of}${s.holding ? ", held" : ""}` : ""}`;
       c.appendChild(
         htmlEl(
-          `<div style="padding:11px 16px;border-bottom:1px solid var(--rule-soft)">\n      <div class="spread"><div><b>${esc(t.name)}${x ? " · " + slotLabel(x) : ""}</b>\n        <div class="tiny muted">${n && "taken" === n.status ? `${esc(fmtAmount(toNum(n.doseMg), t))} · ${fmt(toNum(n.units), 1)}u${n.site ? " · " + esc(siteLabel(n)) : ""}` : o}</div></div>\n        <span class="pill ${n ? ("taken" === n.status ? "done" : "late") : ui.calDay < todayIso() ? "late" : "due"}">${n ? n.status : ui.calDay < todayIso() ? "missed" : "scheduled"}</span></div>\n      <div class="row" style="margin-top:8px">\n        <button class="btn sm ${n && "taken" === n.status ? "" : "ghost"}" data-mark="taken" data-p="${e.id}" data-d="${ui.calDay}"${x ? ` data-slot="${x}"` : ""}>Taken</button>\n        <button class="btn sm ${n && "missed" === n.status ? "" : "ghost"}" data-mark="missed" data-p="${e.id}" data-d="${ui.calDay}"${x ? ` data-slot="${x}"` : ""}>Missed</button>\n        ${n ? `<button class="btn ghost sm" data-clear="${n.id}">Clear</button>` : ""}</div></div>`,
+          `<div style="padding:11px 16px;border-bottom:1px solid var(--rule-soft)">\n      <div class="spread"><div><b>${esc(t.name)}${x ? " · " + slotLabel(x) : ""}</b>\n        <div class="tiny muted">${n && "taken" === n.status ? `${esc(fmtAmount(toNum(n.doseMg), t))} · ${fmt(toNum(n.units), 1)}u${n.site ? " · " + esc(siteLabel(n)) : ""}` : o}</div></div>\n        <span class="pill ${n ? ("taken" === n.status ? "done" : "skipped" === n.status ? "" : "late") : ui.calDay < todayIso() ? "late" : "due"}">${n ? n.status : ui.calDay < todayIso() ? "missed" : "scheduled"}</span></div>\n      <div class="row" style="margin-top:8px">\n        <button class="btn sm ${n && "taken" === n.status ? "" : "ghost"}" data-mark="taken" data-p="${e.id}" data-d="${ui.calDay}"${x ? ` data-slot="${x}"` : ""}>Taken</button>\n        <button class="btn sm ${n && "missed" === n.status ? "" : "ghost"}" data-mark="missed" data-p="${e.id}" data-d="${ui.calDay}"${x ? ` data-slot="${x}"` : ""}>Missed</button>\n        <button class="btn sm ${n && "skipped" === n.status ? "" : "ghost"}" data-mark="skipped" data-p="${e.id}" data-d="${ui.calDay}"${x ? ` data-slot="${x}"` : ""}>Skipped</button>\n        ${n ? `<button class="btn ghost sm" data-clear="${n.id}">Clear</button>` : ""}</div></div>`,
         ),
       );
     }
@@ -4851,7 +4856,7 @@ function applyTheme() {
 }
 (document.addEventListener("click", (e) => {
   const t = e.target.closest(
-    "[data-close],[data-go],[data-logp],[data-missp],[data-undop],[data-logfor],[data-newproto],[data-editproto],[data-pauseproto],[data-newbatch],[data-editbatch],[data-newsol],[data-editsol],[data-newsup],[data-editsup],[data-calday],[data-mark],[data-clear],[data-newcomp],[data-editcomp],[data-addlib],[data-newmetric],[data-editmetric]",
+    "[data-close],[data-go],[data-logp],[data-missp],[data-skipp],[data-undop],[data-logfor],[data-newproto],[data-editproto],[data-pauseproto],[data-newbatch],[data-editbatch],[data-newsol],[data-editsol],[data-newsup],[data-editsup],[data-calday],[data-mark],[data-clear],[data-newcomp],[data-editcomp],[data-addlib],[data-newmetric],[data-editmetric]",
   );
   if (!t) return;
   const n = t.dataset;
@@ -4861,6 +4866,8 @@ function applyTheme() {
     const e = quickLog(n.logp, "taken", n.slot);
     (redrawPage(), toast(e || "Logged."));
   } else if (n.missp) (quickLog(n.missp, "missed", n.slot), redrawPage(), toast("Marked as missed."));
+  // b86: Skip = left out on purpose. Logged as "skipped": not counted as missed, nothing taken from stock.
+  else if (n.skipp) (quickLog(n.skipp, "skipped", n.slot), redrawPage(), toast("Skipped. Tap Skipped to undo."));
   else if (n.undop) {
     const e = logFor(n.undop, todayIso(), n.slot);
     (e && deleteLog(e.id), redrawPage(), toast("Cleared."));

@@ -1,5 +1,5 @@
 {
-  "build": 85,
+  "build": 86,
   "date": "2026-10-31",
-  "note": "Sign-in email and password can be saved by your phone or browser password manager"
+  "note": "Skip button for doses on Today; skipped doses don't count as missed"
 }

@@ -1084,6 +1084,10 @@ details.batch > div {
   padding: 13px 14px;
   flex: 1;
   min-width: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-align: left;
 }
 .schedtime {
   flex: none;
@@ -1739,4 +1743,40 @@ body::before {
 .pw-eye svg {
   width: 18px;
   height: 18px;
+}
+/* b86: Skip a dose on purpose */
+.schedrow[data-s="skipped"] .schedbar {
+  background: var(--rule);
+}
+.schedrow[data-s="skipped"] .schedmain {
+  opacity: 0.6;
+}
+.schedact {
+  gap: 6px;
+}
+.skipdose {
+  border: 0;
+  background: none;
+  padding: 9px 8px;
+  font-size: 13.5px;
+  color: var(--ink-3);
+}
+.skipdose:hover {
+  color: var(--ink);
+}
+.skippedbtn {
+  border: 1px dashed var(--rule);
+  background: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.skippedbtn:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+.cdot[data-s="skipped"] {
+  border: 1.5px dashed var(--ink-3);
+  background: none;
 }

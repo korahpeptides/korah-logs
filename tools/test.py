@@ -446,6 +446,23 @@ with sync_playwright() as pw:
                   return {inForm, names, subs, t1, t2, url: location.href.endsWith('index.html')}; }""")
                 check(f"{tag}: sign-in fields are a form password managers can save", fm["inForm"] and fm["names"], fm)
                 check(f"{tag}: Sign in and Create account submit the form without leaving the page", fm["subs"] == 2 and "email and password" in fm["t1"] and "email and password" in fm["t2"] and fm["url"], fm)
+                # b86: Skip button on Today: logs "skipped", not missed, no stock used, undo clears it
+                sk = pg.evaluate("""async () => {
+                  const keepP = appData.protocols, keepL = appData.logs;
+                  appData.protocols = [{id:'pk',compoundId:appData.compounds[0].id,dose:1,unit:'mg',route:'SubQ',sched:'daily',startDate:addDays(todayIso(),-3),active:true,phases:[]}];
+                  appData.logs = [];
+                  ui.tab = 'today'; redrawPage();
+                  const btn = document.querySelector('[data-skipp="pk"]'); const hasBtn = !!btn; btn && btn.click();
+                  const l = logFor('pk', todayIso());
+                  const logged = !!l && l.status === 'skipped' && !l.doseMg && !l.batchId;
+                  const row = document.querySelector('.schedrow[data-s="skipped"] [data-undop="pk"]');
+                  const adh = adherence(1).sched === 0;
+                  ui.tab = 'protocols'; redrawPage(); const pill = document.querySelector('#view').textContent.includes('Skipped today');
+                  ui.tab = 'today'; redrawPage(); document.querySelector('[data-undop="pk"]').click();
+                  const undone = !logFor('pk', todayIso()) && !!document.querySelector('[data-skipp="pk"]');
+                  appData.protocols = keepP; appData.logs = keepL; redrawPage();
+                  return {hasBtn, logged, row: !!row, adh, pill, undone}; }""")
+                check(f"{tag}: Skip logs the dose as skipped (not missed, no stock), Today shows it, undo clears it", all(sk.values()), sk)
                 # b79: old deletion markers are dropped after 90 days, "__" keys always
                 tb = pg.evaluate("""() => { const old = Date.now() - 91*864e5, recent = Date.now() - 5*864e5;
                   const a = JSON.parse(JSON.stringify(appData)); a._del = {gone_old: old, gone_new: recent, __settings: recent};

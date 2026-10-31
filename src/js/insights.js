@@ -120,6 +120,7 @@ function insStats(start, end) {
         var g = logFor(p.id, dy, sl),
           ok = g && g.status === "taken";
         if (dy === today && !g) return; // still to come today
+        if (g && g.status === "skipped") return; // b86: skipped on purpose, not a missed dose
         sched++;
         if (ok) taken++;
         else missed.push(insDow(dy) + (sl ? " " + sl.toUpperCase() : ""));
