@@ -65,6 +65,7 @@ npm test        # builds both files, runs tools/test.py on both (headless) and t
 17. Sync runs inside a Firestore transaction (b79), so two devices syncing at once both keep their changes. Deletion markers are dropped after 90 days (`DEL_KEEP_DAYS`).
 18. Never declare a top-level function name twice, in one file or across files (they share one namespace and the later one silently wins: b78 broke the protocol draft this way). `build.mjs` refuses to build if it happens.
 19. Personal and Community look different on purpose (b79): amber vs blue stripe and badge, page title, and a line in Settings and the sync box. `APP_KIND` / `APP_OTHER`.
+20. Schedule history (b82): `isDue()` uses `patternFor(p, date)`. Changing a protocol's days or pattern (not the phase layout) sets `schedFrom` to today and saves the old pattern in `schedHist`, so past days keep it. Days before `schedFrom` with no saved pattern are not due. The form shows it as "Pattern in use since".
 8. Sync switches on only at `my.korahpeptides.com` or a `rickspeptidetracker.*` address (`OWN_SYNC_SITE`). The community build has its own shared Firebase (`COMMUNITY_FIREBASE`, `SHARED_SYNC`).
 
 ## Main names in `src/js/app.js`

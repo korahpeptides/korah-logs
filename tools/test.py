@@ -226,6 +226,32 @@ with sync_playwright() as pw:
                 check("Change on a date: old dose before, new dose after", cg["before"] == 100 and cg["after"] == 50, cg)
                 check("Change on a date: no missed Fridays before the change", cg["missed"] == [] and cg["pct"] == 100 and not cg["friBefore"] and cg["friAfter"] and cg["tueBefore"], cg)
                 check("Change on a date: form saved and closed", not cg["open"], cg)
+            if variant == "personal" and width == 1280:
+                # b82: changing the days only applies from today; past days keep the old pattern
+                sh = pg.evaluate("""() => {
+                  const T = todayIso(), S0 = addDays(T, -40), wT = parseDate(T).getDay(), wO = (wT + 3) % 7;
+                  appData.protocols = [{id:'pw',compoundId:'c1',dose:4,unit:'mg',route:'SubQ',sched:'weekdays',days:[wO],startDate:S0,active:true,phases:[]}];
+                  appData.logs = [];
+                  for (let x = S0; x < T; x = addDays(x, 1)) if (parseDate(x).getDay() === wO) appData.logs.push({id:'w'+x,protocolId:'pw',compoundId:'c1',date:x,status:'taken',doseMg:4});
+                  protocolForm('pw'); let m = qs('#modal');
+                  m.querySelector('[data-dow="'+wO+'"]').click(); m.querySelector('[data-dow="'+wT+'"]').click();
+                  m.querySelector('#p-save').click();
+                  const p = appData.protocols[0], wk = addDays(T, -7), old = addDays(T, -4), S = insStats(S0, addDays(T, -1));
+                  const r = {from: p.schedFrom, hist: (p.schedHist||[]).length, lastWeek: isDue(p, wk), oldDay: isDue(p, old), today: isDue(p, T),
+                    status: slotStatus('pw', wk, ''), missed: S.rows[0].missed, pct: S.pct, T};
+                  // second edit the same day keeps the first history entry
+                  protocolForm('pw'); m = qs('#modal'); m.querySelector('#p-notes').value = 'x'; m.querySelector('#p-save').click();
+                  r.hist2 = appData.protocols[0].schedHist.length; r.oldDay2 = isDue(appData.protocols[0], old);
+                  // no known old pattern: setting the date by hand clears earlier missed doses
+                  appData.protocols = [{id:'pz',compoundId:'c1',dose:4,unit:'mg',route:'SubQ',sched:'weekdays',days:[wT],startDate:S0,active:true,phases:[]}];
+                  protocolForm('pz'); m = qs('#modal'); m.querySelector('#p-schedfrom').value = T; m.querySelector('#p-save').click();
+                  r.manual = isDue(appData.protocols[0], wk); r.manualToday = isDue(appData.protocols[0], T);
+                  return r;
+                }""")
+                check("Pattern change: applies from today", sh["from"] == sh["T"] and sh["hist"] == 1 and sh["today"], sh)
+                check("Pattern change: past days keep the old days, no missed dose", not sh["lastWeek"] and sh["oldDay"] and sh["status"] is None and sh["missed"] == [] and sh["pct"] == 100, sh)
+                check("Pattern change: a second save the same day keeps the history", sh["hist2"] == 1 and sh["oldDay2"], sh)
+                check("Pattern change: date set by hand hides earlier days", not sh["manual"] and sh["manualToday"], sh)
             if width == 1280:
                 # b77: sync record is compressed, then encrypted; old records (no z) still read
                 cz = pg.evaluate("""async () => {

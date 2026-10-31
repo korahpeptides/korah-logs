@@ -1,5 +1,5 @@
 {
-  "build": 81,
-  "date": "2026-10-30",
-  "note": "Readable names throughout the main app code; no change in how the app works"
+  "build": 82,
+  "date": "2026-10-31",
+  "note": "Changing a protocol's days applies from today, so past days no longer show missed doses"
 }

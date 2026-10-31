@@ -995,6 +995,9 @@ function isDue(e, t) {
   let a = daysBetween(e.startDate || t, t);
   if (a < 0) return !1;
   if (e.cycling && !cyclePosition(e, t).on) return !1;
+  const H = patternFor(e, t);
+  if (!H) return !1;
+  e = H;
   const P = phaseOn(e, t),
     S = P && P.p.ps ? { sched: P.p.ps, days: P.p.pdays, intervalDays: P.p.pint } : e;
   S !== e && (a = cyclePosition(e, t).elapsedOn - P.st);
@@ -1012,6 +1015,58 @@ function isDue(e, t) {
     default:
       return !1;
   }
+}
+// Schedule history (b82). A change to the dosing pattern applies from schedFrom on.
+// Days before it use the pattern saved in schedHist, or count as not due when it isn't known.
+function patternOf(e) {
+  return {
+    sched: e.sched,
+    days: (e.days || []).slice(),
+    intervalDays: e.intervalDays,
+    cycleOn: e.cycleOn,
+    cycleOff: e.cycleOff,
+    escalate: !!e.escalate,
+    phases: (e.phases || []).map((x) => Object.assign({}, x, x.pdays ? { pdays: x.pdays.slice() } : {})),
+  };
+}
+function patternSig(e) {
+  const p = patternOf(e),
+    ph = p.escalate ? p.phases : [],
+    own = ph.some((x) => x && x.ps);
+  return JSON.stringify([
+    p.sched,
+    "weekdays" === p.sched ? p.days.slice().sort() : 0,
+    "interval" === p.sched ? toNum(p.intervalDays) : 0,
+    "cycle" === p.sched ? [toNum(p.cycleOn), toNum(p.cycleOff)] : 0,
+    own
+      ? ph.map((x) => [x.ps || "", "weekdays" === x.ps ? (x.pdays || []).slice().sort() : 0, "interval" === x.ps ? toNum(x.pint) : 0, toNum(x.dur), x.durUnit || ""])
+      : 0,
+  ]);
+}
+function patternFor(e, t) {
+  if (!e.schedFrom || t >= e.schedFrom) return e;
+  const h = (e.schedHist || []).find((x) => t <= x.to && (!x.from || t >= x.from));
+  return h ? Object.assign({}, e, h.p) : null;
+}
+// On save of an edited protocol: move schedFrom to today when the pattern changed and the box was left alone,
+// and keep the old pattern for the days before it.
+// A change to the phase layout itself (new phases, lengths, "Change on a date") already says when things changed, so it is left alone.
+function phaseLayoutSig(e) {
+  return JSON.stringify(e.escalate ? (e.phases || []).map((x) => [toNum(x.dur), x.durUnit || ""]) : 0);
+}
+function keepPatternHistory(old, t) {
+  const changed = patternSig(old) !== patternSig(t) && phaseLayoutSig(old) === phaseLayoutSig(t);
+  let from = t.schedFrom || "";
+  (changed && from === (old.schedFrom || "") && (from = todayIso()), from && from <= (t.startDate || "") && (from = ""));
+  let h = [];
+  if (from) {
+    h = (old.schedHist || [])
+      .filter((x) => !x.from || x.from < from)
+      .map((x) => Object.assign({}, x, x.to >= from ? { to: addDays(from, -1) } : {}));
+    const of = old.schedFrom || "";
+    changed && (!of || of < from) && h.push({ from: of, to: addDays(from, -1), p: patternOf(old) });
+  }
+  ((t.schedFrom = from), (t.schedHist = h));
 }
 function endDate(e) {
   return toNum(e.weeks) ? addDays(e.startDate, 7 * toNum(e.weeks) - 1) : null;
@@ -2253,7 +2308,7 @@ function protocolForm(e) {
   const n = DR ? DR.name : (t.compoundId && (compoundById(t.compoundId) || {}).name) || "";
   openForm(
     e ? "Edit protocol" : "New protocol",
-    `${DR ? `<div class="note warn" style="margin:0 0 14px;align-items:center;flex-wrap:wrap"><span>↺</span><span style="flex:1;min-width:160px">Picked up where you left off (${esc(timeAgo(DR.at))}).</span><button type="button" class="btn ghost sm" id="p-discard">Start over</button></div>` : ""}\n    <datalist id="lib">${COMPOUND_LIST.map((e) => `<option value="${esc(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="p-name">Compound</label>\n      <input id="p-name" list="lib" value="${esc(n)}" placeholder="Start typing — the list has common ones">\n      <span class="hint">Anything not on the list is added as your own.</span></div>\n    <fieldset><legend>Dose</legend><div class="fgrid3">\n      <div class="field"><label for="p-dose" id="p-dlab">${t.split ? "Amount per shot" : "Amount"}</label><input id="p-dose" type="number" step="any" min="0" value="${esc(t.dose)}">\n        <span class="hint" id="p-dosenote" hidden></span><span class="hint" id="p-daily"></span></div>\n      <div class="field"><label for="p-unit">Measured in</label><select id="p-unit">\n        <option value="mcg"${"mcg" === t.unit ? " selected" : ""}>mcg</option><option value="mg"${"mg" === t.unit ? " selected" : ""}>mg</option>\n        <option value="iu"${"iu" === t.unit ? " selected" : ""}>IU</option></select></div>\n      <div class="field"><label>Doses per day</label><div class="seg" id="p-split"><button type="button" data-split="0" aria-pressed="${!t.split}">Once</button><button type="button" data-split="1" aria-pressed="${!!t.split}">Split AM + PM</button></div>\n        <span class="hint">Split gives you a morning and an evening shot, each this amount.</span></div>\n      <div class="field"><label for="p-time" id="p-tlab">${t.split ? "AM time" : "Time of day"}</label><input id="p-time" type="time" value="${esc(t.time || "")}">\n        <span class="hint" id="p-thint">${t.split ? "Optional — leave blank and Today just says AM." : "Optional — orders your Today list."}</span></div>\n      <div class="field" id="p-t2" style="${t.split ? "" : "display:none"}"><label for="p-time2">PM time</label><input id="p-time2" type="time" value="${esc(t.time2 || "")}">\n        <span class="hint">Optional — leave blank and Today just says PM.</span></div>\n      <div class="field" id="p-sf" style="${t.split ? "" : "display:none"}"><label for="p-splitfrom">AM + PM starts on</label><input id="p-splitfrom" type="date" value="${esc(t.splitFrom || "")}">\n        <span class="hint">Days before this count as one dose a day, so they don't show a missed PM dose. Leave blank if it was AM + PM from the start.</span></div>\n      <div class="field"><label for="p-route">Route</label><select id="p-route">\n        ${["SubQ", "IM", "Oral", "Nasal", "Topical"].map((e) => `<option${t.route === e ? " selected" : ""}>${e}</option>`).join("")}</select></div>\n    </div></fieldset>\n    <div class="togrow" style="border-top:0;padding-top:0;margin-bottom:6px">\n      <div><b>Blend</b><span>Several peptides in one vial</span></div>\n      <label class="switch"><input type="checkbox" id="p-blend" ${t.blend ? "checked" : ""}><i></i></label></div>\n    <div id="p-blendbox" style="margin-bottom:14px" ${t.blend ? "" : "hidden"}></div>\n    <div class="togrow" style="margin-bottom:6px"><div><b>Pre-filled pen</b><span>Comes ready to inject, nothing to mix or draw (Mounjaro, Ozempic and the like)</span></div>\n      <label class="switch"><input type="checkbox" id="p-pen" ${t.pen ? "checked" : ""}><i></i></label></div>\n    <fieldset id="p-mixfs" ${t.pen ? "hidden" : ""}><legend>Vial mix</legend>\n      <div class="field"><label for="p-water">Bac water added to the vial (mL)</label>\n        <input id="p-water" type="number" step="any" min="0" placeholder="e.g. 2">\n        <span class="hint" id="p-waterhint"></span>\n        <span class="tiny mono muted" id="p-waterprev" style="display:block;margin-top:4px"></span></div>\n    </fieldset>\n    <fieldset><legend>Schedule</legend>\n      <div class="field"><label for="p-sched">Pattern</label><select id="p-sched">\n        <option value="daily"${"daily" === t.sched ? " selected" : ""}>Every day</option>\n        <option value="weekdays"${"weekdays" === t.sched ? " selected" : ""}>Certain days of the week</option>\n        <option value="interval"${"interval" === t.sched ? " selected" : ""}>Every N days</option>\n        <option value="cycle"${"cycle" === t.sched ? " selected" : ""}>Days on, days off</option></select></div>\n      <div id="p-extra"></div>\n      <div class="fgrid">\n        <div class="field"><label for="p-start">Starts</label><input id="p-start" type="date" value="${esc(t.startDate)}"></div>\n        <div class="field"><label for="p-weeks">Length in weeks</label><input id="p-weeks" type="number" min="0" step="1" value="${esc(t.weeks)}" placeholder="Leave blank for open ended"></div>\n      </div></fieldset>\n    <div class="togrow" style="border-top:0">\n      <div><b>Phases</b><span>Change the dose or the schedule partway through: titration, or daily then a few times a week</span></div>\n      <label class="switch"><input type="checkbox" id="p-esc" ${t.escalate ? "checked" : ""}><i></i></label></div>\n    <div id="p-escbox" ${t.escalate ? "" : "hidden"}></div>\n    <div class="togrow">\n      <div><b>On/off cycling</b><span>Run for a spell, then rest</span></div>\n      <label class="switch"><input type="checkbox" id="p-cyc" ${t.cycling ? "checked" : ""}><i></i></label></div>\n    <div id="p-cycbox" ${t.cycling ? "" : "hidden"}></div>\n    <div class="prev" id="p-preview"></div>\n    <div class="field" style="margin-top:12px"><label for="p-active">Status</label><select id="p-active">\n      <option value="1"${t.active ? " selected" : ""}>Running</option><option value="0"${t.active ? "" : " selected"}>Paused</option></select></div>\n    <div class="field"><label for="p-notes">Notes</label><textarea id="p-notes">${esc(t.notes)}</textarea></div>\n    <p id="p-prev" class="tiny mono muted"></p>`,
+    `${DR ? `<div class="note warn" style="margin:0 0 14px;align-items:center;flex-wrap:wrap"><span>↺</span><span style="flex:1;min-width:160px">Picked up where you left off (${esc(timeAgo(DR.at))}).</span><button type="button" class="btn ghost sm" id="p-discard">Start over</button></div>` : ""}\n    <datalist id="lib">${COMPOUND_LIST.map((e) => `<option value="${esc(e[0])}">`).join("")}</datalist>\n    <div class="field"><label for="p-name">Compound</label>\n      <input id="p-name" list="lib" value="${esc(n)}" placeholder="Start typing — the list has common ones">\n      <span class="hint">Anything not on the list is added as your own.</span></div>\n    <fieldset><legend>Dose</legend><div class="fgrid3">\n      <div class="field"><label for="p-dose" id="p-dlab">${t.split ? "Amount per shot" : "Amount"}</label><input id="p-dose" type="number" step="any" min="0" value="${esc(t.dose)}">\n        <span class="hint" id="p-dosenote" hidden></span><span class="hint" id="p-daily"></span></div>\n      <div class="field"><label for="p-unit">Measured in</label><select id="p-unit">\n        <option value="mcg"${"mcg" === t.unit ? " selected" : ""}>mcg</option><option value="mg"${"mg" === t.unit ? " selected" : ""}>mg</option>\n        <option value="iu"${"iu" === t.unit ? " selected" : ""}>IU</option></select></div>\n      <div class="field"><label>Doses per day</label><div class="seg" id="p-split"><button type="button" data-split="0" aria-pressed="${!t.split}">Once</button><button type="button" data-split="1" aria-pressed="${!!t.split}">Split AM + PM</button></div>\n        <span class="hint">Split gives you a morning and an evening shot, each this amount.</span></div>\n      <div class="field"><label for="p-time" id="p-tlab">${t.split ? "AM time" : "Time of day"}</label><input id="p-time" type="time" value="${esc(t.time || "")}">\n        <span class="hint" id="p-thint">${t.split ? "Optional — leave blank and Today just says AM." : "Optional — orders your Today list."}</span></div>\n      <div class="field" id="p-t2" style="${t.split ? "" : "display:none"}"><label for="p-time2">PM time</label><input id="p-time2" type="time" value="${esc(t.time2 || "")}">\n        <span class="hint">Optional — leave blank and Today just says PM.</span></div>\n      <div class="field" id="p-sf" style="${t.split ? "" : "display:none"}"><label for="p-splitfrom">AM + PM starts on</label><input id="p-splitfrom" type="date" value="${esc(t.splitFrom || "")}">\n        <span class="hint">Days before this count as one dose a day, so they don't show a missed PM dose. Leave blank if it was AM + PM from the start.</span></div>\n      <div class="field"><label for="p-route">Route</label><select id="p-route">\n        ${["SubQ", "IM", "Oral", "Nasal", "Topical"].map((e) => `<option${t.route === e ? " selected" : ""}>${e}</option>`).join("")}</select></div>\n    </div></fieldset>\n    <div class="togrow" style="border-top:0;padding-top:0;margin-bottom:6px">\n      <div><b>Blend</b><span>Several peptides in one vial</span></div>\n      <label class="switch"><input type="checkbox" id="p-blend" ${t.blend ? "checked" : ""}><i></i></label></div>\n    <div id="p-blendbox" style="margin-bottom:14px" ${t.blend ? "" : "hidden"}></div>\n    <div class="togrow" style="margin-bottom:6px"><div><b>Pre-filled pen</b><span>Comes ready to inject, nothing to mix or draw (Mounjaro, Ozempic and the like)</span></div>\n      <label class="switch"><input type="checkbox" id="p-pen" ${t.pen ? "checked" : ""}><i></i></label></div>\n    <fieldset id="p-mixfs" ${t.pen ? "hidden" : ""}><legend>Vial mix</legend>\n      <div class="field"><label for="p-water">Bac water added to the vial (mL)</label>\n        <input id="p-water" type="number" step="any" min="0" placeholder="e.g. 2">\n        <span class="hint" id="p-waterhint"></span>\n        <span class="tiny mono muted" id="p-waterprev" style="display:block;margin-top:4px"></span></div>\n    </fieldset>\n    <fieldset><legend>Schedule</legend>\n      <div class="field"><label for="p-sched">Pattern</label><select id="p-sched">\n        <option value="daily"${"daily" === t.sched ? " selected" : ""}>Every day</option>\n        <option value="weekdays"${"weekdays" === t.sched ? " selected" : ""}>Certain days of the week</option>\n        <option value="interval"${"interval" === t.sched ? " selected" : ""}>Every N days</option>\n        <option value="cycle"${"cycle" === t.sched ? " selected" : ""}>Days on, days off</option></select></div>\n      <div id="p-extra"></div>\n${e ? `<div class="field"><label for="p-schedfrom">Pattern in use since</label><input id="p-schedfrom" type="date" value="${esc(t.schedFrom || "")}">\n        <span class="hint">Change the days or pattern and this moves to today, so earlier days keep the pattern you had then and don't show missed doses. Leave blank if the pattern hasn't changed since the start.</span></div>` : ""}\n      <div class="fgrid">\n        <div class="field"><label for="p-start">Starts</label><input id="p-start" type="date" value="${esc(t.startDate)}"></div>\n        <div class="field"><label for="p-weeks">Length in weeks</label><input id="p-weeks" type="number" min="0" step="1" value="${esc(t.weeks)}" placeholder="Leave blank for open ended"></div>\n      </div></fieldset>\n    <div class="togrow" style="border-top:0">\n      <div><b>Phases</b><span>Change the dose or the schedule partway through: titration, or daily then a few times a week</span></div>\n      <label class="switch"><input type="checkbox" id="p-esc" ${t.escalate ? "checked" : ""}><i></i></label></div>\n    <div id="p-escbox" ${t.escalate ? "" : "hidden"}></div>\n    <div class="togrow">\n      <div><b>On/off cycling</b><span>Run for a spell, then rest</span></div>\n      <label class="switch"><input type="checkbox" id="p-cyc" ${t.cycling ? "checked" : ""}><i></i></label></div>\n    <div id="p-cycbox" ${t.cycling ? "" : "hidden"}></div>\n    <div class="prev" id="p-preview"></div>\n    <div class="field" style="margin-top:12px"><label for="p-active">Status</label><select id="p-active">\n      <option value="1"${t.active ? " selected" : ""}>Running</option><option value="0"${t.active ? "" : " selected"}>Paused</option></select></div>\n    <div class="field"><label for="p-notes">Notes</label><textarea id="p-notes">${esc(t.notes)}</textarea></div>\n    <p id="p-prev" class="tiny mono muted"></p>`,
     `${e ? '<button class="btn danger" id="p-del">Delete</button>' : ""}\n     <button class="btn ghost" data-close>Cancel</button><button class="btn" id="p-save">${e ? "Save changes" : "Add protocol"}</button>`,
   );
   const a = qs("#modal");
@@ -2281,6 +2336,7 @@ function protocolForm(e) {
         (t.time2 = a.querySelector("#p-time2").value),
         (t.splitFrom = t.split ? a.querySelector("#p-splitfrom").value : ""),
         (t.startDate = a.querySelector("#p-start").value || todayIso()),
+        a.querySelector("#p-schedfrom") && (t.schedFrom = a.querySelector("#p-schedfrom").value),
         (t.weeks = a.querySelector("#p-weeks").value),
         (t.active = "1" === a.querySelector("#p-active").value),
         (t.notes = a.querySelector("#p-notes").value),
@@ -2719,6 +2775,7 @@ function protocolForm(e) {
         e && a !== toNum(e.bacMl) && ((e.bacMl = String(a)), (i = ` Water set to ${fmt(a, 2)} mL.`));
       }
       const l = appData.protocols.findIndex((e) => e.id === t.id);
+      l >= 0 && keepPatternHistory(appData.protocols[l], t);
       (l >= 0 ? (appData.protocols[l] = t) : appData.protocols.push(t),
         saveData(),
         draftClear(),
