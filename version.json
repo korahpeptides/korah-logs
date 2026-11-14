@@ -1,5 +1,5 @@
 {
-  "build": 87,
-  "date": "2026-10-31",
-  "note": "Change email button in Sync settings; keeps the same account and data"
+  "build": 88,
+  "date": "2026-11-14",
+  "note": "Months and years added to phase duration and cycle on/off dropdowns"
 }

@@ -865,7 +865,8 @@ function niceCeil(e) {
   for (const t of [1, 2, 3, 5, 10, 20, 30]) if (e <= t) return t;
   return Math.ceil(e);
 }
-const periodDays = (e, t) => Math.max(0, Math.round(toNum(e) * ("days" === t ? 1 : 7)));
+const UNIT_DAYS = { days: 1, weeks: 7, months: 30, years: 365 };
+const periodDays = (e, t) => Math.max(0, Math.round(toNum(e) * (UNIT_DAYS[t] || 7)));
 function cyclePosition(e, t) {
   const n = daysBetween(e.startDate || t, t);
   if (!e.cycling) return { on: !0, elapsedOn: n, block: 0, pos: n, onD: 0, offD: 0 };
@@ -2424,7 +2425,7 @@ function protocolForm(e) {
       return a;
     },
     p = (e) =>
-      ["weeks", "days"]
+      ["weeks", "days", "months", "years"]
         .map((t) => `<option value="${t}"${e === t ? " selected" : ""}>${t}</option>`)
         .join(""),
     h = () => {
