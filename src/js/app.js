@@ -4607,6 +4607,12 @@ function chartTipHtml(pt, prev, unit) {
   const d = prev ? pt.v - prev.v : 0;
   return `<b>${fmt(pt.v, 1)} ${esc(unit)}</b><span>${esc(fullDate(pt.date))}</span>${prev && d ? `<span>${d > 0 ? "+" : ""}${fmt(d, 1)} since ${esc(fullDate(prev.date))}</span>` : ""}`;
 }
+function betweenTipHtml(a, b, f, unit) {
+  const days = Math.round(f * daysBetween(a.date, b.date)),
+    date = addDays(a.date, days),
+    v = a.v + f * (b.v - a.v);
+  return `<b>~${fmt(v, 1)} ${esc(unit)}</b><span>${esc(fullDate(date))}</span><span>between readings of ${fmt(a.v, 1)} and ${fmt(b.v, 1)}<br>(${esc(shortDate(a.date))} to ${esc(shortDate(b.date))})</span>`;
+}
 function placeTip(tip, box, x, y) {
   tip.hidden = !1;
   const w = tip.offsetWidth,
@@ -4631,12 +4637,17 @@ function miniHover(wrap, pts, unit, h) {
   (wrap.addEventListener("pointermove", (ev) => {
     const box = wrap.getBoundingClientRect();
     if (!box.width) return;
-    const vx = ((ev.clientX - box.left) / box.width) * 520,
-      idx = Math.max(0, Math.min(pts.length - 1, Math.round(((vx - 8) / 504) * (pts.length - 1)))),
-      px = ((8 + (idx / (pts.length - 1 || 1)) * 504) / 520) * box.width,
-      py = ((h - 8 - ((pts[idx].v - lo) / span) * (h - 16)) / h) * box.height;
+    const last = pts.length - 1,
+      vx = ((ev.clientX - box.left) / box.width) * 520,
+      pos = Math.max(0, Math.min(last, ((vx - 8) / 504) * last)),
+      i = Math.min(last - 1, Math.floor(pos)),
+      f = pos - i,
+      v = pts[i].v + f * (pts[i + 1].v - pts[i].v),
+      px = ((8 + (pos / (last || 1)) * 504) / 520) * box.width,
+      py = ((h - 8 - ((v - lo) / span) * (h - 16)) / h) * box.height,
+      near = f < 0.08 ? i : f > 0.92 ? i + 1 : -1;
     ((dot.style.left = px + "px"), (dot.style.top = py + "px"), (dot.hidden = !1));
-    tip.innerHTML = chartTipHtml(pts[idx], pts[idx - 1], unit);
+    tip.innerHTML = near >= 0 ? chartTipHtml(pts[near], pts[near - 1], unit) : betweenTipHtml(pts[i], pts[i + 1], f, unit);
     placeTip(tip, box, px, py);
   }),
     wrap.addEventListener("pointerleave", off),
@@ -4688,18 +4699,23 @@ function drawMetricFull(host, pts, unit) {
     };
   (host.addEventListener("pointermove", (ev) => {
     const r = host.getBoundingClientRect(),
-      px = ev.clientX - r.left;
-    let best = 0;
-    for (let i = 1; i < xy.length; i++) Math.abs(xy[i][0] - px) < Math.abs(xy[best][0] - px) && (best = i);
-    const [cx, cy] = xy[best];
+      px = Math.max(xy[0][0], Math.min(xy[xy.length - 1][0], ev.clientX - r.left));
+    let i = 0;
+    while (i < xy.length - 2 && xy[i + 1][0] <= px) i++;
+    const dx = xy[i + 1][0] - xy[i][0],
+      f = dx > 0 ? (px - xy[i][0]) / dx : 0,
+      cy = xy[i][1] + f * (xy[i + 1][1] - xy[i][1]),
+      snap = Math.abs(px - xy[i][0]) < 7 ? i : Math.abs(px - xy[i + 1][0]) < 7 ? i + 1 : -1,
+      cx = snap >= 0 ? xy[snap][0] : px,
+      cyy = snap >= 0 ? xy[snap][1] : cy;
     (xh.setAttribute("x1", cx),
       xh.setAttribute("x2", cx),
       xh.setAttribute("visibility", "visible"),
       hd.setAttribute("cx", cx),
-      hd.setAttribute("cy", cy),
+      hd.setAttribute("cy", cyy),
       hd.setAttribute("visibility", "visible"),
-      (tip.innerHTML = chartTipHtml(pts[best], pts[best - 1], unit)),
-      placeTip(tip, r, cx, cy));
+      (tip.innerHTML = snap >= 0 ? chartTipHtml(pts[snap], pts[snap - 1], unit) : betweenTipHtml(pts[i], pts[i + 1], f, unit)),
+      placeTip(tip, r, cx, cyy));
   }),
     host.addEventListener("pointerleave", off),
     host.addEventListener("pointercancel", off));
@@ -4716,7 +4732,7 @@ function openMetricFull(key, title, unit) {
     last = vals[vals.length - 1],
     chg = last - vals[0];
   ov.querySelector(".mfull-sum").textContent = `${fmt(last, 1)} ${unit}${chg ? ` (${chg > 0 ? "+" : ""}${fmt(chg, 1)})` : ""}`;
-  ov.querySelector(".mfull-foot").textContent = `${pts.length} readings, ${fullDate(pts[0].date)} to ${fullDate(pts[pts.length - 1].date)} · low ${fmt(Math.min(...vals), 1)} · high ${fmt(Math.max(...vals), 1)} ${unit} · hover or touch the line for values`;
+  ov.querySelector(".mfull-foot").textContent = `${pts.length} readings, ${fullDate(pts[0].date)} to ${fullDate(pts[pts.length - 1].date)} · low ${fmt(Math.min(...vals), 1)} · high ${fmt(Math.max(...vals), 1)} ${unit} · hover or touch anywhere along the line, including between readings`;
   const redraw = () => drawMetricFull(host, pts, unit),
     close = () => {
       (window.removeEventListener("resize", redraw),

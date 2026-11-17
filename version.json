@@ -1,5 +1,5 @@
 {
-  "build": 89,
+  "build": 90,
   "date": "2026-11-16",
-  "note": "Weight page charts: hover shows the value and date, click opens a full-screen chart"
+  "note": "Weight page charts: hovering between readings shows the estimated value along the line"
 }

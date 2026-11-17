@@ -1813,7 +1813,7 @@ body::before {
   padding: 6px 9px;
   font-size: 12px;
   line-height: 1.35;
-  white-space: nowrap;
+  max-width: 230px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
 }
 .chart-tip b {

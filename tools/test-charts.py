@@ -44,9 +44,19 @@ with sync_playwright() as pw:
         check(tag+": chart fills area", cbb["width"]>w*0.8 and cbb["height"]>300, cbb)
         pg.mouse.move(cbb["x"]+cbb["width"]*0.6, cbb["y"]+cbb["height"]*0.5); pg.wait_for_timeout(100)
         ft=pg.locator(".mfull-chart .chart-tip"); check(tag+": full hover tip visible", ft.is_visible())
-        ftx=ft.inner_text(); check(tag+": full tip text", "lb" in ftx and "since" in ftx, ftx)
+        ftx=ft.inner_text(); check(tag+": full tip text", "lb" in ftx and ("since" in ftx or "between" in ftx), ftx)
         fb=ft.bounding_box(); check(tag+": full tip inside viewport", fb["x"]>=0 and fb["x"]+fb["width"]<=w and fb["y"]>=0, fb)
         check(tag+": crosshair+dot shown", pg.locator(".mfull-chart .hd").get_attribute("visibility")=="visible")
+        # between entries: midpoint of first segment must show an estimated value between the two readings
+        xs=pg.evaluate("(()=>{const c=[...document.querySelectorAll('.mfull-chart svg circle')].filter(x=>!x.classList.contains('hd'));return [+c[0].getAttribute('cx'),+c[1].getAttribute('cx')]})()")
+        mid=(xs[0]+xs[1])/2
+        pg.mouse.move(cbb["x"]+mid, cbb["y"]+cbb["height"]/2); pg.wait_for_timeout(100)
+        mt=ft.inner_text(); check(tag+": between readings shows estimate", mt.startswith("~") and "between" in mt, mt)
+        import re
+        mv=float(re.match(r"~([\d.]+)",mt).group(1)); check(tag+": estimate is midway between 250 and 247.9", abs(mv-248.95)<0.2, mv)
+        pg.mouse.move(cbb["x"]+xs[0]+1, cbb["y"]+cbb["height"]/2); pg.wait_for_timeout(100)
+        check(tag+": on a reading shows exact value", not ft.inner_text().startswith("~"), ft.inner_text())
+        pg.mouse.move(cbb["x"]+cbb["width"]*0.6, cbb["y"]+cbb["height"]*0.5); pg.wait_for_timeout(100)
         pg.screenshot(path=f"/tmp/korah_full_{variant}_{w}.png")
         # resize redraw
         pg.set_viewport_size({"width":w,"height":600}); pg.wait_for_timeout(150)
