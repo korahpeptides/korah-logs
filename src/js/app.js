@@ -4568,19 +4568,20 @@ function weightView() {
     );
   const n = htmlEl('<div class="grid3"></div>');
   for (const [e, a, s] of METRICS) {
-    const o = t
-      .slice()
-      .reverse()
-      .filter((t) => "" !== t[e] && null != t[e])
-      .map((t) => toNum(t[e]));
-    if (o.length < 2) continue;
-    const i = o[o.length - 1],
-      l = i - o[0];
-    n.appendChild(
-      htmlEl(
-        `<div class="panel"><h2>${a}<span class="mono tiny">${fmt(i, 1)} ${s}${l ? ` (${l > 0 ? "+" : ""}${fmt(l, 1)})` : ""}</span></h2>\n      <div style="padding:10px 12px">${sparkSvg(o, s, 100)}</div></div>`,
-      ),
-    );
+    const pts = metricSeries(e);
+    if (pts.length < 2) continue;
+    const o = pts.map((p) => p.v),
+      i = o[o.length - 1],
+      l = i - o[0],
+      card = htmlEl(
+        `<div class="panel metric-card" role="button" tabindex="0" aria-label="${esc(a)} chart, open full screen" title="Click to open full screen"><h2>${a}<span class="mono tiny">${fmt(i, 1)} ${s}${l ? ` (${l > 0 ? "+" : ""}${fmt(l, 1)})` : ""}</span></h2>\n      <div class="spark-hit" style="padding:10px 12px"><div class="spark-wrap">${sparkSvg(o, s, 100)}<i class="spark-dot" hidden></i><div class="chart-tip" hidden></div></div></div></div>`,
+      );
+    (miniHover(card.querySelector(".spark-wrap"), pts, s, 100),
+      card.addEventListener("click", () => openMetricFull(e, a, s)),
+      card.addEventListener("keydown", (ev) => {
+        ("Enter" !== ev.key && " " !== ev.key) || (ev.preventDefault(), openMetricFull(e, a, s));
+      }),
+      n.appendChild(card));
   }
   n.children.length && e.appendChild(n);
   const a = htmlEl(
@@ -4594,6 +4595,144 @@ function weightView() {
       ),
     );
   return (e.appendChild(a), e);
+}
+function metricSeries(key) {
+  return appData.metrics
+    .slice()
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .filter((m) => "" !== m[key] && null != m[key])
+    .map((m) => ({ date: m.date, v: toNum(m[key]) }));
+}
+function chartTipHtml(pt, prev, unit) {
+  const d = prev ? pt.v - prev.v : 0;
+  return `<b>${fmt(pt.v, 1)} ${esc(unit)}</b><span>${esc(fullDate(pt.date))}</span>${prev && d ? `<span>${d > 0 ? "+" : ""}${fmt(d, 1)} since ${esc(fullDate(prev.date))}</span>` : ""}`;
+}
+function placeTip(tip, box, x, y) {
+  tip.hidden = !1;
+  const w = tip.offsetWidth,
+    h = tip.offsetHeight;
+  let left = x - w / 2,
+    top = y - h - 12;
+  (top < 2 && (top = y + 14),
+    (left = Math.max(2, Math.min(box.width - w - 2, left))),
+    (tip.style.left = left + "px"),
+    (tip.style.top = top + "px"));
+}
+function miniHover(wrap, pts, unit, h) {
+  const dot = wrap.querySelector(".spark-dot"),
+    tip = wrap.querySelector(".chart-tip"),
+    vals = pts.map((p) => p.v),
+    hi = Math.max(...vals, 1e-9),
+    lo = Math.min(...vals, 0),
+    span = hi - lo || 1,
+    off = () => {
+      ((dot.hidden = !0), (tip.hidden = !0));
+    };
+  (wrap.addEventListener("pointermove", (ev) => {
+    const box = wrap.getBoundingClientRect();
+    if (!box.width) return;
+    const vx = ((ev.clientX - box.left) / box.width) * 520,
+      idx = Math.max(0, Math.min(pts.length - 1, Math.round(((vx - 8) / 504) * (pts.length - 1)))),
+      px = ((8 + (idx / (pts.length - 1 || 1)) * 504) / 520) * box.width,
+      py = ((h - 8 - ((pts[idx].v - lo) / span) * (h - 16)) / h) * box.height;
+    ((dot.style.left = px + "px"), (dot.style.top = py + "px"), (dot.hidden = !1));
+    tip.innerHTML = chartTipHtml(pts[idx], pts[idx - 1], unit);
+    placeTip(tip, box, px, py);
+  }),
+    wrap.addEventListener("pointerleave", off),
+    wrap.addEventListener("pointercancel", off));
+}
+function niceTicks(lo, hi, want) {
+  const raw = (hi - lo) / Math.max(1, want),
+    mag = Math.pow(10, Math.floor(Math.log10(raw || 1))),
+    step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw) || 10 * mag,
+    out = [];
+  for (let t = Math.ceil(lo / step) * step; t <= hi + step * 1e-6; t += step) out.push(roundTo(t, 6));
+  return out;
+}
+function drawMetricFull(host, pts, unit) {
+  const box = host.getBoundingClientRect(),
+    W = Math.max(280, Math.floor(box.width)),
+    H = Math.max(220, Math.floor(box.height)),
+    m = { l: 54, r: 22, t: 20, b: 38 },
+    vals = pts.map((p) => p.v);
+  let lo = Math.min(...vals),
+    hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.1 || Math.abs(hi) * 0.02 || 1;
+  ((lo -= pad), (hi += pad));
+  const t0 = parseDate(pts[0].date).getTime(),
+    t1 = parseDate(pts[pts.length - 1].date).getTime(),
+    tspan = t1 - t0 || 1,
+    X = (p) => m.l + ((parseDate(p.date).getTime() - t0) / tspan) * (W - m.l - m.r),
+    Y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b),
+    xy = pts.map((p) => [X(p), Y(p.v)]),
+    line = xy.map((c, i) => (i ? "L" : "M") + roundTo(c[0], 1) + " " + roundTo(c[1], 1)).join(" "),
+    base = H - m.b;
+  let g = "";
+  for (const t of niceTicks(lo, hi, Math.max(3, Math.floor((H - m.t - m.b) / 60))))
+    g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(t)}" y2="${Y(t)}" stroke="var(--rule-soft)"/><text x="${m.l - 8}" y="${Y(t) + 4}" text-anchor="end" font-size="11" font-family="ui-monospace,monospace" fill="var(--ink-3)">${fmt(t, 1)}</text>`;
+  const nx = Math.max(2, Math.min(7, Math.floor((W - m.l - m.r) / 110)));
+  for (let k = 0; k < nx; k++) {
+    const f = nx > 1 ? k / (nx - 1) : 0,
+      d = new Date(t0 + f * tspan),
+      x = m.l + f * (W - m.l - m.r);
+    g += `<line x1="${x}" x2="${x}" y1="${base}" y2="${base + 5}" stroke="var(--ink-3)"/><text x="${x}" y="${base + 20}" text-anchor="${0 === k ? "start" : k === nx - 1 ? "end" : "middle"}" font-size="11" font-family="ui-monospace,monospace" fill="var(--ink-3)">${esc(d.toLocaleDateString(void 0, { month: "short", day: "numeric", year: "2-digit" }))}</text>`;
+  }
+  const dots = pts.length <= 90 ? xy.map((c) => `<circle cx="${roundTo(c[0], 1)}" cy="${roundTo(c[1], 1)}" r="3" fill="var(--signal)"/>`).join("") : "";
+  host.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="trend with hover values">${g}<path d="${line} L ${xy[xy.length - 1][0]} ${base} L ${xy[0][0]} ${base} Z" fill="var(--signal-soft)" opacity=".8"/><path d="${line}" fill="none" stroke="var(--signal)" stroke-width="2.2" stroke-linejoin="round"/>${dots}<line class="xh" y1="${m.t}" y2="${base}" stroke="var(--ink-3)" stroke-dasharray="3 3" visibility="hidden"/><circle class="hd" r="6" fill="var(--surface)" stroke="var(--signal)" stroke-width="2.5" visibility="hidden"/></svg><div class="chart-tip" hidden></div>`;
+  const xh = host.querySelector(".xh"),
+    hd = host.querySelector(".hd"),
+    tip = host.querySelector(".chart-tip"),
+    off = () => {
+      (xh.setAttribute("visibility", "hidden"), hd.setAttribute("visibility", "hidden"), (tip.hidden = !0));
+    };
+  (host.addEventListener("pointermove", (ev) => {
+    const r = host.getBoundingClientRect(),
+      px = ev.clientX - r.left;
+    let best = 0;
+    for (let i = 1; i < xy.length; i++) Math.abs(xy[i][0] - px) < Math.abs(xy[best][0] - px) && (best = i);
+    const [cx, cy] = xy[best];
+    (xh.setAttribute("x1", cx),
+      xh.setAttribute("x2", cx),
+      xh.setAttribute("visibility", "visible"),
+      hd.setAttribute("cx", cx),
+      hd.setAttribute("cy", cy),
+      hd.setAttribute("visibility", "visible"),
+      (tip.innerHTML = chartTipHtml(pts[best], pts[best - 1], unit)),
+      placeTip(tip, r, cx, cy));
+  }),
+    host.addEventListener("pointerleave", off),
+    host.addEventListener("pointercancel", off));
+}
+function openMetricFull(key, title, unit) {
+  const pts = metricSeries(key);
+  if (pts.length < 2) return;
+  const prevFocus = document.activeElement,
+    ov = htmlEl(
+      `<div class="mfull" role="dialog" aria-modal="true" aria-label="${esc(title)} chart"><div class="mfull-head"><h2>${esc(title)}</h2><span class="mono mfull-sum"></span><button class="x" aria-label="Close">×</button></div><div class="mfull-chart"></div><div class="mfull-foot tiny muted"></div></div>`,
+    ),
+    host = ov.querySelector(".mfull-chart"),
+    vals = pts.map((p) => p.v),
+    last = vals[vals.length - 1],
+    chg = last - vals[0];
+  ov.querySelector(".mfull-sum").textContent = `${fmt(last, 1)} ${unit}${chg ? ` (${chg > 0 ? "+" : ""}${fmt(chg, 1)})` : ""}`;
+  ov.querySelector(".mfull-foot").textContent = `${pts.length} readings, ${fullDate(pts[0].date)} to ${fullDate(pts[pts.length - 1].date)} · low ${fmt(Math.min(...vals), 1)} · high ${fmt(Math.max(...vals), 1)} ${unit} · hover or touch the line for values`;
+  const redraw = () => drawMetricFull(host, pts, unit),
+    close = () => {
+      (window.removeEventListener("resize", redraw),
+        document.removeEventListener("keydown", onKey, !0),
+        ov.remove(),
+        prevFocus && prevFocus.focus && prevFocus.focus());
+    },
+    onKey = (ev) => {
+      "Escape" === ev.key && (ev.stopPropagation(), close());
+    };
+  (ov.querySelector(".x").addEventListener("click", close),
+    document.addEventListener("keydown", onKey, !0),
+    window.addEventListener("resize", redraw),
+    document.body.appendChild(ov),
+    redraw(),
+    ov.querySelector(".x").focus());
 }
 function readingForm(e) {
   const t = e

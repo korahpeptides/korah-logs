@@ -1780,3 +1780,98 @@ body::before {
   border: 1.5px dashed var(--ink-3);
   background: none;
 }
+
+.metric-card {
+  cursor: pointer;
+}
+.metric-card:hover {
+  border-color: var(--signal);
+}
+.spark-wrap {
+  position: relative;
+}
+.spark-wrap svg {
+  display: block;
+}
+.spark-dot {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--signal);
+  pointer-events: none;
+}
+.chart-tip {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  background: var(--ink);
+  color: var(--surface);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+.chart-tip b {
+  display: block;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.chart-tip span {
+  display: block;
+  opacity: 0.8;
+}
+.chart-tip[hidden],
+.spark-dot[hidden] {
+  display: none;
+}
+.mfull {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px 12px;
+}
+.mfull-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.mfull-head h2 {
+  margin: 0;
+  font-size: 20px;
+  flex: 1;
+}
+.mfull-head .x {
+  font-size: 26px;
+  line-height: 1;
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.mfull-chart {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 10px 0;
+  touch-action: none;
+  overflow: hidden;
+}
+.mfull-chart svg {
+  display: block;
+}
+.mfull-foot {
+  padding-top: 4px;
+}

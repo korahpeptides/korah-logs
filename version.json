@@ -1,5 +1,5 @@
 {
-  "build": 88,
-  "date": "2026-11-14",
-  "note": "Months and years added to phase duration and cycle on/off dropdowns"
+  "build": 89,
+  "date": "2026-11-16",
+  "note": "Weight page charts: hover shows the value and date, click opens a full-screen chart"
 }
